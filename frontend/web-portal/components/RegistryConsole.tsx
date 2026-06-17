@@ -57,12 +57,13 @@ import {
   runVerificationAiAssessment,
   startVerificationCase,
   submitGisEvidence,
-  uploadVerificationEvidencePackage,
+  uploadVerificationEvidenceFiles,
   validateAiReview,
   validateGisEvidence,
   VerificationAssessment,
   VerificationCase,
   VerificationFile,
+  VerificationUploadFile,
   WorkflowAction
 } from "../services/carbonRegistry";
 
@@ -87,6 +88,20 @@ const VERIFICATION_SEQUENCE = [
   "zicma_review",
   "approved",
   "credit_issued"
+];
+
+const REQUIRED_VERIFICATION_UPLOADS: Array<{ category: VerificationFile["category"]; label: string; accept: string }> = [
+  { category: "boundary", label: "Boundary file", accept: ".geojson,.json,.kml,.zip,.shp" },
+  { category: "monitoring_report", label: "Monitoring report", accept: ".pdf" },
+  { category: "carbon_calculation", label: "Carbon calculations", accept: ".xlsx,.xls,.csv" },
+  { category: "biomass_inventory", label: "Biomass inventory", accept: ".csv,.xlsx,.xls" },
+  { category: "satellite_imagery", label: "Satellite imagery metadata", accept: ".json,.tif,.tiff,.zip" },
+  { category: "field_photo", label: "GPS photographs", accept: ".jpg,.jpeg,.png,.zip" },
+  { category: "inspection_form", label: "Inspection forms", accept: ".pdf,.doc,.docx" },
+  { category: "drone_imagery", label: "Drone imagery", accept: ".zip,.tif,.tiff,.jpg,.jpeg" },
+  { category: "verifier_statement", label: "Verifier statement", accept: ".pdf" },
+  { category: "accreditation_certificate", label: "Accreditation certificate", accept: ".pdf" },
+  { category: "digital_signature", label: "Digital signature", accept: ".txt,.sig,.pem" }
 ];
 
 const statusStep: Record<string, number> = {
@@ -177,6 +192,7 @@ export default function RegistryConsole() {
   const [aiReview, setAiReview] = useState<AiReview | null>(null);
   const [verificationCase, setVerificationCase] = useState<VerificationCase | null>(null);
   const [verificationAssessment, setVerificationAssessment] = useState<VerificationAssessment | null>(null);
+  const [verificationUploadFiles, setVerificationUploadFiles] = useState<Record<string, File | null>>({});
   const [gisEvidenceForm, setGisEvidenceForm] = useState<GisEvidencePayload>({
     boundary_geojson:
       '{"type":"Feature","properties":{"name":"Kariba block A"},"geometry":{"type":"Polygon","coordinates":[[[28.72,-16.45],[28.92,-16.45],[28.92,-16.62],[28.72,-16.62],[28.72,-16.45]]]}}',
@@ -408,28 +424,21 @@ export default function RegistryConsole() {
     await loadProjectDetails(projectId);
   }
 
-  function verificationFiles(): VerificationFile[] {
-    const signature = `SIG-${selectedProject?.project_code ?? "PROJECT"}-2026`;
-    return [
-      ["project-boundary.geojson", "boundary", "application/geo+json", 18422],
-      ["monitoring-report.pdf", "monitoring_report", "application/pdf", 992120],
-      ["carbon-calculations.xlsx", "carbon_calculation", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 221004],
-      ["biomass-inventory.csv", "biomass_inventory", "text/csv", 80442],
-      ["sentinel-scene-metadata.json", "satellite_imagery", "application/json", 50220],
-      ["gps-photo-pack.zip", "field_photo", "application/zip", 2240122],
-      ["inspection-forms.pdf", "inspection_form", "application/pdf", 312002],
-      ["drone-imagery-index.zip", "drone_imagery", "application/zip", 4021200],
-      ["verifier-statement.pdf", "verifier_statement", "application/pdf", 202200],
-      ["accreditation-certificate.pdf", "accreditation_certificate", "application/pdf", 181040],
-      ["digital-signature.txt", "digital_signature", "text/plain", 2048]
-    ].map(([file_name, category, mime_type, file_size_bytes]) => ({
-      file_name: String(file_name),
-      category: category as VerificationFile["category"],
-      mime_type: String(mime_type),
-      file_size_bytes: Number(file_size_bytes),
-      capture_date: "2026-12-31",
-      digital_signature: signature
-    }));
+  function updateVerificationUpload(category: VerificationFile["category"], file: File | null) {
+    setVerificationUploadFiles((current) => ({ ...current, [category]: file }));
+  }
+
+  function selectedVerificationUploads(): VerificationUploadFile[] {
+    return REQUIRED_VERIFICATION_UPLOADS.flatMap((item) => {
+      const file = verificationUploadFiles[item.category];
+      return file
+        ? [{
+            file,
+            category: item.category,
+            digital_signature: `SIG-${item.category.toUpperCase()}-${selectedProject?.project_code ?? "PROJECT"}`
+          }]
+        : [];
+    });
   }
 
   async function runVerificationStep(step: "start" | "evidence" | "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") {
@@ -442,7 +451,11 @@ export default function RegistryConsole() {
       if (step === "start") {
         setVerificationCase(await startVerificationCase(selectedProject.id));
       } else if (step === "evidence") {
-        await uploadVerificationEvidencePackage(selectedProject.id, verificationFiles());
+        const uploads = selectedVerificationUploads();
+        if (uploads.length !== REQUIRED_VERIFICATION_UPLOADS.length) {
+          throw new Error("Select one file for every required evidence category before uploading.");
+        }
+        await uploadVerificationEvidenceFiles(selectedProject.id, uploads);
       } else if (step === "automatic") {
         setVerificationAssessment(await runAutomaticVerification(selectedProject.id));
       } else if (step === "ai") {
@@ -616,6 +629,47 @@ export default function RegistryConsole() {
                   </div>
                 ))}
               </div>
+
+              <Paper elevation={0} className="border p-5">
+                <div className="mb-4 flex flex-col justify-between gap-2 md:flex-row md:items-center">
+                  <div>
+                    <Typography variant="h6" fontWeight={900}>Evidence file upload</Typography>
+                    <p className="text-sm text-slate-600">
+                      Select one real file for each required evidence category. The backend stores the uploaded bytes and calculates SHA256 hashes.
+                    </p>
+                  </div>
+                  <Chip
+                    color={selectedVerificationUploads().length === REQUIRED_VERIFICATION_UPLOADS.length ? "success" : "warning"}
+                    label={`${selectedVerificationUploads().length}/${REQUIRED_VERIFICATION_UPLOADS.length} selected`}
+                  />
+                </div>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {REQUIRED_VERIFICATION_UPLOADS.map((item) => (
+                    <div key={item.category} className="rounded-lg border bg-white p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <strong className="block text-zai-ink">{item.label}</strong>
+                          <span className="text-xs text-slate-500">{item.category}</span>
+                          {verificationUploadFiles[item.category] && (
+                            <p className="mt-1 text-xs text-slate-600">
+                              {verificationUploadFiles[item.category]?.name} - {Math.ceil((verificationUploadFiles[item.category]?.size ?? 0) / 1024)} KB
+                            </p>
+                          )}
+                        </div>
+                        <Button variant="outlined" component="label" startIcon={<UploadFileIcon />}>
+                          Choose File
+                          <input
+                            hidden
+                            type="file"
+                            accept={item.accept}
+                            onChange={(event) => updateVerificationUpload(item.category, event.target.files?.[0] ?? null)}
+                          />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Paper>
 
               <div className="grid gap-3 md:grid-cols-4">
                 <Button variant="outlined" startIcon={<UploadFileIcon />} disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("evidence")}>Upload Evidence</Button>

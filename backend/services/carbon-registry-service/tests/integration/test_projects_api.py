@@ -225,6 +225,57 @@ async def test_projects_api_register_and_list() -> None:
         assert evidence_package_response.json()["verification_id"] == verification_id
         assert evidence_package_response.json()["evidence_complete"] is True
 
+        boundary = "----zai-cts-integration-boundary"
+        multipart_body = bytearray()
+
+        def add_field(name: str, value: str) -> None:
+            multipart_body.extend(f"--{boundary}\r\n".encode())
+            multipart_body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+            multipart_body.extend(value.encode())
+            multipart_body.extend(b"\r\n")
+
+        def add_file(name: str, filename: str, content: bytes) -> None:
+            multipart_body.extend(f"--{boundary}\r\n".encode())
+            multipart_body.extend(
+                (
+                    f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                    "Content-Type: text/plain\r\n\r\n"
+                ).encode()
+            )
+            multipart_body.extend(content)
+            multipart_body.extend(b"\r\n")
+
+        add_field("package_notes", "Complete multipart evidence upload package.")
+        for category in [
+            "boundary",
+            "monitoring_report",
+            "carbon_calculation",
+            "biomass_inventory",
+            "satellite_imagery",
+            "field_photo",
+            "inspection_form",
+            "drone_imagery",
+            "verifier_statement",
+            "accreditation_certificate",
+            "digital_signature",
+        ]:
+            add_file("files", f"{category}.txt", f"{category} evidence".encode())
+            add_field("categories", category)
+            add_field("digital_signatures", f"SIG-{category}-2026")
+        multipart_body.extend(f"--{boundary}--\r\n".encode())
+
+        multipart_response = await client.post(
+            f"/api/v1/projects/{project_id}/verification/evidence-files",
+            headers={
+                "X-Actor-Role": "project_developer.owner",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+            content=bytes(multipart_body),
+        )
+        assert multipart_response.status_code == 200
+        assert multipart_response.json()["evidence_complete"] is True
+        assert multipart_response.json()["files"][0]["sha256"]
+
         automatic_response = await client.post(f"/api/v1/projects/{project_id}/verification/automatic-validation")
         assert automatic_response.status_code == 200
         assert automatic_response.json()["status"] == "pass"

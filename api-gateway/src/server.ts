@@ -11,7 +11,11 @@ import { healthRoutes } from "./routes/health.js";
 export async function buildServer() {
   const app = Fastify({
     logger: true,
-    bodyLimit: 1048576
+    bodyLimit: 50 * 1024 * 1024
+  });
+
+  app.addContentTypeParser(/^multipart\/form-data(;.*)?$/i, { parseAs: "buffer" }, (_request, body, done) => {
+    done(null, body);
   });
 
   await app.register(helmet);

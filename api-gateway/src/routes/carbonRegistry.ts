@@ -15,6 +15,28 @@ function forwardHeaders(incomingHeaders: Record<string, string | string[] | unde
   return headers;
 }
 
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function upstreamHeaders(incomingHeaders: Record<string, string | string[] | undefined>) {
+  const contentType = firstHeader(incomingHeaders["content-type"]);
+  return {
+    ...(contentType ? { "content-type": contentType } : { "content-type": "application/json" }),
+    ...forwardHeaders(incomingHeaders)
+  };
+}
+
+function upstreamBody(method: string, contentType: string | undefined, body: unknown) {
+  if (method === "GET" || method === "HEAD" || body === undefined) {
+    return undefined;
+  }
+  if (contentType?.toLowerCase().startsWith("multipart/form-data")) {
+    return body as Buffer;
+  }
+  return JSON.stringify(body);
+}
+
 export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> {
   app.all("/api/v1/projects", async (incoming, reply) => {
     const url = new URL("/api/v1/projects", config.CARBON_REGISTRY_URL);
@@ -26,11 +48,8 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
 
     const upstream = await request(url, {
       method: incoming.method,
-      headers: {
-        "content-type": "application/json",
-        ...forwardHeaders(incoming.headers)
-      },
-      body: incoming.body ? JSON.stringify(incoming.body) : undefined
+      headers: upstreamHeaders(incoming.headers),
+      body: upstreamBody(incoming.method, firstHeader(incoming.headers["content-type"]), incoming.body)
     });
 
     reply.statusCode = upstream.statusCode;
@@ -44,11 +63,8 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
 
     const upstream = await request(url, {
       method: incoming.method,
-      headers: {
-        "content-type": "application/json",
-        ...forwardHeaders(incoming.headers)
-      },
-      body: incoming.body ? JSON.stringify(incoming.body) : undefined
+      headers: upstreamHeaders(incoming.headers),
+      body: upstreamBody(incoming.method, firstHeader(incoming.headers["content-type"]), incoming.body)
     });
 
     reply.statusCode = upstream.statusCode;
@@ -67,11 +83,8 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
 
     const upstream = await request(url, {
       method: incoming.method,
-      headers: {
-        "content-type": "application/json",
-        ...forwardHeaders(incoming.headers)
-      },
-      body: incoming.body ? JSON.stringify(incoming.body) : undefined
+      headers: upstreamHeaders(incoming.headers),
+      body: upstreamBody(incoming.method, firstHeader(incoming.headers["content-type"]), incoming.body)
     });
 
     reply.statusCode = upstream.statusCode;

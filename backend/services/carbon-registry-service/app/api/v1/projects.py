@@ -1,10 +1,11 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from hashlib import sha256
+from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 
 from app.api.dependencies import get_audit_reader, get_audit_writer, get_credit_batch_repository, get_project_repository
 from app.application.commands.register_project import RegisterCarbonProjectCommand
@@ -98,6 +99,8 @@ REQUIRED_EVIDENCE_CATEGORIES = {
     "digital_signature",
 }
 
+EVIDENCE_STORAGE_ROOT = Path("storage/evidence")
+
 
 def _event_metadata(event: object) -> dict[str, object]:
     metadata = getattr(event, "metadata_", None)
@@ -111,6 +114,10 @@ def _verification_id() -> str:
 def _hash_file(project_id: UUID, verification_id: str, file_name: str, signature: str) -> str:
     payload = f"{project_id}:{verification_id}:{file_name}:{signature}".encode()
     return sha256(payload).hexdigest()
+
+
+def _safe_file_name(file_name: str) -> str:
+    return "".join(character if character.isalnum() or character in {".", "-", "_"} else "_" for character in file_name)
 
 
 def _latest_verification_events(events: list[object]) -> list[object]:
@@ -499,6 +506,98 @@ async def upload_verification_evidence_package(
         verification_id=case.verification_id,
         status="evidence_uploaded" if evidence_complete else "incomplete",
         files=files,
+        evidence_complete=evidence_complete,
+        created_at=now,
+    )
+
+
+@router.post("/{project_id}/verification/evidence-files", response_model=EvidencePackageResponse)
+async def upload_verification_evidence_files(
+    project_id: UUID,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+    package_notes: str = Form(..., min_length=10, max_length=1000),
+    categories: list[str] = Form(...),
+    digital_signatures: list[str] = Form(...),
+    files: list[UploadFile] = File(...),
+) -> EvidencePackageResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+    case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start verification before uploading evidence.")
+    if not (len(files) == len(categories) == len(digital_signatures)):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Each file requires a category and digital signature.")
+
+    now = datetime.now(tz=UTC)
+    stored_files: list[dict[str, object]] = []
+    storage_dir = EVIDENCE_STORAGE_ROOT / str(project.id) / case.verification_id
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    for index, upload in enumerate(files):
+        category = categories[index]
+        if category not in REQUIRED_EVIDENCE_CATEGORIES:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unsupported evidence category: {category}")
+        digital_signature = digital_signatures[index]
+        if len(digital_signature) < 8:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Digital signature is too short for {upload.filename}.")
+
+        content = await upload.read()
+        if len(content) == 0:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Uploaded file is empty: {upload.filename}.")
+
+        digest = sha256(content).hexdigest()
+        safe_name = _safe_file_name(upload.filename or f"{category}-{index}")
+        stored_name = f"{digest[:16]}-{safe_name}"
+        stored_path = storage_dir / stored_name
+        stored_path.write_bytes(content)
+        stored_files.append(
+            {
+                "file_name": upload.filename,
+                "category": category,
+                "mime_type": upload.content_type or "application/octet-stream",
+                "file_size_bytes": len(content),
+                "capture_date": None,
+                "sha256": digest,
+                "version": 1,
+                "uploaded_at": now.isoformat(),
+                "uploader_id": str(current_user.actor_id) if current_user.actor_id else None,
+                "digital_signature": digital_signature,
+                "storage_uri": str(stored_path.as_posix()),
+            }
+        )
+
+    submitted_categories = {str(file["category"]) for file in stored_files}
+    missing_categories = sorted(REQUIRED_EVIDENCE_CATEGORIES - submitted_categories)
+    evidence_complete = len(missing_categories) == 0
+    await audit_writer.write(
+        event_type="verification.evidence_files.uploaded",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="upload_evidence_package",
+        outcome="evidence_uploaded" if evidence_complete else "incomplete",
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "verification_id": case.verification_id,
+            "verification_status": "evidence_uploaded",
+            "evidence_complete": evidence_complete,
+            "missing_categories": missing_categories,
+            "package_notes": package_notes,
+            "files": stored_files,
+            "storage_policy": "local immutable append-only evidence store",
+        },
+    )
+    return EvidencePackageResponse(
+        verification_id=case.verification_id,
+        status="evidence_uploaded" if evidence_complete else "incomplete",
+        files=stored_files,
         evidence_complete=evidence_complete,
         created_at=now,
     )

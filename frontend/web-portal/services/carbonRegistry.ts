@@ -170,6 +170,12 @@ export type VerificationDecisionResult = {
   generated_at: string;
 };
 
+export type VerificationUploadFile = {
+  file: File;
+  category: VerificationFile["category"];
+  digital_signature: string;
+};
+
 export type RegisterCarbonProjectPayload = {
   project_code: string;
   title: string;
@@ -401,6 +407,27 @@ export async function uploadVerificationEvidencePackage(projectId: string, files
   return response.json();
 }
 
+export async function uploadVerificationEvidenceFiles(projectId: string, uploads: VerificationUploadFile[]) {
+  const formData = new FormData();
+  formData.append("package_notes", "Complete verification evidence package uploaded through the ZAI-CTS portal.");
+  for (const upload of uploads) {
+    formData.append("files", upload.file);
+    formData.append("categories", upload.category);
+    formData.append("digital_signatures", upload.digital_signature);
+  }
+
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/evidence-files`, {
+    method: "POST",
+    headers: actorIdentityHeaders(),
+    body: formData
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Verification file upload failed with ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function runAutomaticVerification(projectId: string): Promise<VerificationAssessment> {
   const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/automatic-validation`, {
     method: "POST",
@@ -452,6 +479,12 @@ export async function decideVerificationStage(
 function actorHeaders() {
   return {
     "content-type": "application/json",
+    ...actorIdentityHeaders()
+  };
+}
+
+function actorIdentityHeaders() {
+  return {
     "x-actor-id": "11111111-1111-4111-8111-111111111111",
     "x-actor-role": "regulator.approver",
     "x-correlation-id": crypto.randomUUID()
