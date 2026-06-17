@@ -210,6 +210,29 @@ async def test_projects_api_register_and_list() -> None:
         assert len(gis_response.json()["layers"]) == 4
         assert len(gis_response.json()["evidence_sources"]) >= 4
 
+        evidence_response = await client.post(
+            f"/api/v1/projects/{project_id}/gis-evidence",
+            headers={"X-Actor-Role": "gis.verifier"},
+            json={
+                "boundary_geojson": '{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[28.7,-16.4],[28.9,-16.4],[28.9,-16.6],[28.7,-16.6],[28.7,-16.4]]]}}',
+                "satellite_scene_id": "S2A_MSIL2A_20260615T073621_KARIBA",
+                "land_cover_source": "ESA WorldCover 10m 2021 baseline",
+                "fire_alert_source": "NASA FIRMS VIIRS 375m last 30 days",
+                "field_mrv_reference": "MRV-FIELD-KARIBA-2026-001",
+                "verifier_notes": "Boundary, satellite and field MRV evidence submitted for regulator validation.",
+            },
+        )
+        assert evidence_response.status_code == 201
+        assert evidence_response.json()["status"] == "submitted"
+
+        gis_validation_response = await client.post(
+            f"/api/v1/projects/{project_id}/gis-validation",
+            headers={"X-Actor-Role": "regulator.gis_approver"},
+            json={"decision": "valid", "notes": "Submitted boundary and MRV evidence accepted."},
+        )
+        assert gis_validation_response.status_code == 200
+        assert gis_validation_response.json()["status"] == "valid"
+
         ai_response = await client.post(
             f"/api/v1/projects/{project_id}/ai-review",
             headers={"X-Actor-Role": "ai.reviewer"},
@@ -217,3 +240,15 @@ async def test_projects_api_register_and_list() -> None:
         assert ai_response.status_code == 200
         assert ai_response.json()["review_type"] == "pdd_compliance_and_risk_review"
         assert Decimal(ai_response.json()["confidence_score"]) > Decimal("0.80")
+
+        ai_validation_response = await client.post(
+            f"/api/v1/projects/{project_id}/ai-validation",
+            headers={"X-Actor-Role": "regulator.ai_approver"},
+            json={"decision": "valid", "notes": "AI review accepted with human verification controls."},
+        )
+        assert ai_validation_response.status_code == 200
+        assert ai_validation_response.json()["status"] == "valid"
+
+        evidence_list_response = await client.get(f"/api/v1/projects/{project_id}/evidence")
+        assert evidence_list_response.status_code == 200
+        assert len(evidence_list_response.json()) >= 3

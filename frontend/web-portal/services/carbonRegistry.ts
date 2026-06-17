@@ -79,6 +79,34 @@ export type AiReview = {
   generated_at: string;
 };
 
+export type GisEvidencePayload = {
+  boundary_geojson: string;
+  satellite_scene_id: string;
+  land_cover_source: string;
+  fire_alert_source: string;
+  field_mrv_reference: string;
+  verifier_notes: string;
+};
+
+export type EvidenceRecord = {
+  id: string;
+  evidence_type: string;
+  status: string;
+  submitted_by: string | null;
+  submitted_role: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ValidationDecision = {
+  project_id: string;
+  validation_type: string;
+  status: string;
+  notes: string;
+  validated_by: string | null;
+  generated_at: string;
+};
+
 export type RegisterCarbonProjectPayload = {
   project_code: string;
   title: string;
@@ -205,6 +233,65 @@ export async function runAiReview(projectId: string): Promise<AiReview> {
   if (!response.ok) {
     const body = await response.text();
     throw new Error(body || `AI review failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function submitGisEvidence(projectId: string, payload: GisEvidencePayload): Promise<EvidenceRecord> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/gis-evidence`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `GIS evidence submission failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function listEvidence(projectId: string): Promise<EvidenceRecord[]> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/evidence`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Evidence list failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function validateGisEvidence(
+  projectId: string,
+  payload: { decision: "valid" | "invalid" | "requires_revision"; notes: string }
+): Promise<ValidationDecision> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/gis-validation`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `GIS validation failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function validateAiReview(
+  projectId: string,
+  payload: { decision: "valid" | "invalid" | "requires_revision"; notes: string }
+): Promise<ValidationDecision> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/ai-validation`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `AI validation failed with ${response.status}`);
   }
 
   return response.json();

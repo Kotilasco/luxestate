@@ -11,12 +11,16 @@ from app.application.dto import (
     AiReviewResponse,
     CarbonProjectResponse,
     CreditBatchResponse,
+    EvidenceRecordResponse,
     ErrorResponse,
     GisAssessmentResponse,
     GisLayerResponse,
+    GisEvidenceSubmissionRequest,
     IssueCreditBatchRequest,
     ProjectWorkflowRequest,
     RegisterCarbonProjectRequest,
+    ValidationDecisionRequest,
+    ValidationDecisionResponse,
 )
 from app.application.ports import AuditReader, AuditWriter, CarbonProjectRepository, CreditBatchRepository
 from app.application.queries.get_projects import GetCarbonProjectQuery, ListCarbonProjectsQuery
@@ -57,6 +61,11 @@ DEFAULT_GIS_PROFILE = {
     "carbon_density": Decimal("96.50"),
     "fire_risk": "medium",
 }
+
+
+def _event_metadata(event: object) -> dict[str, object]:
+    metadata = getattr(event, "metadata_", None)
+    return metadata if isinstance(metadata, dict) else {}
 
 
 @router.post(
@@ -370,3 +379,181 @@ async def run_ai_review(
         },
     )
     return response
+
+
+@router.post(
+    "/{project_id}/gis-evidence",
+    response_model=EvidenceRecordResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}},
+)
+async def submit_gis_evidence(
+    project_id: UUID,
+    request: GisEvidenceSubmissionRequest,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> EvidenceRecordResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+
+    evidence_id = uuid4()
+    now = datetime.now(tz=UTC)
+    metadata: dict[str, object] = {
+        "evidence_id": str(evidence_id),
+        "evidence_type": "gis_boundary_and_mrv",
+        "status": "submitted",
+        "boundary_geojson": request.boundary_geojson,
+        "satellite_scene_id": request.satellite_scene_id,
+        "land_cover_source": request.land_cover_source,
+        "fire_alert_source": request.fire_alert_source,
+        "field_mrv_reference": request.field_mrv_reference,
+        "verifier_notes": request.verifier_notes,
+    }
+    await audit_writer.write(
+        event_type="gis.evidence.submitted",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="submit_gis_evidence",
+        outcome="submitted",
+        correlation_id=x_correlation_id or uuid4(),
+        metadata=metadata,
+    )
+    return EvidenceRecordResponse(
+        id=evidence_id,
+        evidence_type="gis_boundary_and_mrv",
+        status="submitted",
+        submitted_by=current_user.actor_id,
+        submitted_role=current_user.actor_role,
+        metadata=metadata,
+        created_at=now,
+    )
+
+
+@router.get("/{project_id}/evidence", response_model=list[EvidenceRecordResponse])
+async def list_project_evidence(
+    project_id: UUID,
+    audit_reader: AuditReader = Depends(get_audit_reader),
+) -> list[EvidenceRecordResponse]:
+    events = await audit_reader.list_for_resource("carbon_project", project_id, 100)
+    records: list[EvidenceRecordResponse] = []
+    for event in events:
+        metadata = _event_metadata(event)
+        if getattr(event, "action", "") not in {"submit_gis_evidence", "validate_gis_evidence", "validate_ai_review"}:
+            continue
+        evidence_id = metadata.get("evidence_id") or metadata.get("validation_id") or str(getattr(event, "id"))
+        records.append(
+            EvidenceRecordResponse(
+                id=UUID(str(evidence_id)),
+                evidence_type=str(metadata.get("evidence_type", getattr(event, "action"))),
+                status=str(metadata.get("status", getattr(event, "outcome"))),
+                submitted_by=getattr(event, "actor_id", None),
+                submitted_role=getattr(event, "actor_role", None),
+                metadata=metadata,
+                created_at=getattr(event, "created_at"),
+            )
+        )
+    return records
+
+
+@router.post("/{project_id}/gis-validation", response_model=ValidationDecisionResponse, responses={404: {"model": ErrorResponse}})
+async def validate_gis_evidence(
+    project_id: UUID,
+    request: ValidationDecisionRequest,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> ValidationDecisionResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+
+    events = await audit_reader.list_for_resource("carbon_project", project_id, 100)
+    has_submitted_evidence = any(getattr(event, "action", "") == "submit_gis_evidence" for event in events)
+    if not has_submitted_evidence:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GIS evidence must be submitted before validation.")
+
+    validation_id = uuid4()
+    now = datetime.now(tz=UTC)
+    metadata = {
+        "validation_id": str(validation_id),
+        "evidence_type": "gis_validation_decision",
+        "status": request.decision,
+        "notes": request.notes,
+    }
+    await audit_writer.write(
+        event_type="gis.evidence.validation_decision",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="validate_gis_evidence",
+        outcome=request.decision,
+        correlation_id=x_correlation_id or uuid4(),
+        metadata=metadata,
+    )
+    return ValidationDecisionResponse(
+        project_id=project.id,
+        validation_type="gis",
+        status=request.decision,
+        notes=request.notes,
+        validated_by=current_user.actor_id,
+        generated_at=now,
+    )
+
+
+@router.post("/{project_id}/ai-validation", response_model=ValidationDecisionResponse, responses={404: {"model": ErrorResponse}})
+async def validate_ai_review(
+    project_id: UUID,
+    request: ValidationDecisionRequest,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> ValidationDecisionResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+
+    events = await audit_reader.list_for_resource("carbon_project", project_id, 100)
+    has_ai_review = any(getattr(event, "action", "") == "run_ai_review" for event in events)
+    if not has_ai_review:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AI review must be run before validation.")
+
+    validation_id = uuid4()
+    now = datetime.now(tz=UTC)
+    metadata = {
+        "validation_id": str(validation_id),
+        "evidence_type": "ai_validation_decision",
+        "status": request.decision,
+        "notes": request.notes,
+    }
+    await audit_writer.write(
+        event_type="ai.review.validation_decision",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="validate_ai_review",
+        outcome=request.decision,
+        correlation_id=x_correlation_id or uuid4(),
+        metadata=metadata,
+    )
+    return ValidationDecisionResponse(
+        project_id=project.id,
+        validation_type="ai",
+        status=request.decision,
+        notes=request.notes,
+        validated_by=current_user.actor_id,
+        generated_at=now,
+    )

@@ -36,15 +36,21 @@ import {
   AuditEvent,
   CarbonProject,
   CreditBatch,
+  EvidenceRecord,
   fetchGatewayHealth,
   GisAssessment,
+  GisEvidencePayload,
   issueCreditBatch,
   listAuditEvents,
   listCarbonProjects,
   listCreditBatches,
+  listEvidence,
   registerCarbonProject,
   runAiReview,
   runGisAssessment,
+  submitGisEvidence,
+  validateAiReview,
+  validateGisEvidence,
   WorkflowAction
 } from "../services/carbonRegistry";
 
@@ -139,8 +145,18 @@ export default function RegistryConsole() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [credits, setCredits] = useState<CreditBatch[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [evidenceRecords, setEvidenceRecords] = useState<EvidenceRecord[]>([]);
   const [gisAssessment, setGisAssessment] = useState<GisAssessment | null>(null);
   const [aiReview, setAiReview] = useState<AiReview | null>(null);
+  const [gisEvidenceForm, setGisEvidenceForm] = useState<GisEvidencePayload>({
+    boundary_geojson:
+      '{"type":"Feature","properties":{"name":"Kariba block A"},"geometry":{"type":"Polygon","coordinates":[[[28.72,-16.45],[28.92,-16.45],[28.92,-16.62],[28.72,-16.62],[28.72,-16.45]]]}}',
+    satellite_scene_id: "S2A_MSIL2A_20260615T073621_KARIBA",
+    land_cover_source: "ESA WorldCover 10m 2021 baseline",
+    fire_alert_source: "NASA FIRMS VIIRS 375m last 30 days",
+    field_mrv_reference: "MRV-FIELD-KARIBA-2026-001",
+    verifier_notes: "Boundary, satellite and field MRV pack uploaded by accredited verifier for regulator review."
+  });
   const [form, setForm] = useState<FormState>(() => createInitialForm());
   const [activeTab, setActiveTab] = useState("registry");
   const [isLoading, setIsLoading] = useState(false);
@@ -168,18 +184,21 @@ export default function RegistryConsole() {
     } else {
       setCredits([]);
       setAuditEvents([]);
+      setEvidenceRecords([]);
       setGisAssessment(null);
       setAiReview(null);
     }
   }
 
   async function loadProjectDetails(projectId: string) {
-    const [creditResponse, auditResponse] = await Promise.all([
+    const [creditResponse, auditResponse, evidenceResponse] = await Promise.all([
       listCreditBatches(projectId),
-      listAuditEvents(projectId)
+      listAuditEvents(projectId),
+      listEvidence(projectId)
     ]);
     setCredits(creditResponse);
     setAuditEvents(auditResponse);
+    setEvidenceRecords(evidenceResponse);
     setGisAssessment((current) => (current?.project_id === projectId ? current : null));
     setAiReview((current) => (current?.project_id === projectId ? current : null));
   }
@@ -271,6 +290,48 @@ export default function RegistryConsole() {
     }
   }
 
+  function updateGisEvidenceField<Key extends keyof GisEvidencePayload>(key: Key, value: GisEvidencePayload[Key]) {
+    setGisEvidenceForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submitSelectedGisEvidence(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const evidence = await submitGisEvidence(selectedProject.id, gisEvidenceForm);
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: `GIS evidence submitted: ${evidence.evidence_type}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "GIS evidence submission failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function decideGisValidation(decision: "valid" | "invalid" | "requires_revision") {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const result = await validateGisEvidence(selectedProject.id, {
+        decision,
+        notes: decision === "valid" ? "Boundary, satellite, fire and field MRV evidence accepted by regulator." : "Evidence requires regulator follow-up before approval."
+      });
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: `GIS validation marked ${result.status}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "GIS validation failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function runSelectedAiReview() {
     if (!selectedProject) {
       return;
@@ -289,14 +350,34 @@ export default function RegistryConsole() {
     }
   }
 
+  async function decideAiValidation(decision: "valid" | "invalid" | "requires_revision") {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const result = await validateAiReview(selectedProject.id, {
+        decision,
+        notes: decision === "valid" ? "AI review accepted and human verification controls recorded." : "AI review requires additional human review evidence."
+      });
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: `AI validation marked ${result.status}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "AI validation failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function selectProject(projectId: string) {
     setSelectedProjectId(projectId);
     await loadProjectDetails(projectId);
   }
 
   return (
-    <section id="registry" className="mx-auto max-w-7xl px-6 py-10">
-      <div className="mb-6 flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
+    <section id="registry" className="enterprise-shell mx-auto max-w-7xl px-6 py-10">
+      <div className="hero-band mb-6 flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-zai-blue">ZAI-CTS Operations Portal</p>
           <h1 className="mt-2 text-4xl font-bold text-zai-ink">Carbon market workflow console</h1>
@@ -312,7 +393,7 @@ export default function RegistryConsole() {
         </Stack>
       </div>
 
-      <Paper elevation={0} className="mb-6 border">
+      <Paper elevation={0} className="nav-panel mb-6 border">
         <Tabs value={activeTab} onChange={(_, value: string) => setActiveTab(value)} variant="scrollable" scrollButtons="auto">
           {workspaceLinks.map(([value, label, icon]) => (
             <Tab key={value.toString()} value={value} icon={icon} iconPosition="start" label={label} />
@@ -503,7 +584,7 @@ export default function RegistryConsole() {
           </Stack>
         </div>
       ) : activeTab === "gis" ? (
-        <Paper elevation={0} className="border p-8">
+        <Paper elevation={0} className="workspace-panel border p-8">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
             <div>
               <Typography variant="h5" fontWeight={900}>
@@ -520,6 +601,34 @@ export default function RegistryConsole() {
 
           {selectedProject ? (
             <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_420px]">
+              <Paper elevation={0} className="xl:col-span-2 border p-6">
+                <Box component="form" onSubmit={submitSelectedGisEvidence}>
+                  <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                    <div>
+                      <Typography variant="h6" fontWeight={900}>
+                        Submit GIS and MRV evidence
+                      </Typography>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Evidence is recorded in the immutable audit trail before GIS can be marked valid.
+                      </p>
+                    </div>
+                    <Button type="submit" variant="contained" disabled={isLoading}>
+                      Submit Evidence
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <TextField label="Boundary GeoJSON" value={gisEvidenceForm.boundary_geojson} onChange={(event) => updateGisEvidenceField("boundary_geojson", event.target.value)} multiline minRows={4} required />
+                    <Stack spacing={2}>
+                      <TextField label="Satellite scene ID" value={gisEvidenceForm.satellite_scene_id} onChange={(event) => updateGisEvidenceField("satellite_scene_id", event.target.value)} required />
+                      <TextField label="Land-cover source" value={gisEvidenceForm.land_cover_source} onChange={(event) => updateGisEvidenceField("land_cover_source", event.target.value)} required />
+                      <TextField label="Fire-alert source" value={gisEvidenceForm.fire_alert_source} onChange={(event) => updateGisEvidenceField("fire_alert_source", event.target.value)} required />
+                    </Stack>
+                    <TextField label="Field MRV reference" value={gisEvidenceForm.field_mrv_reference} onChange={(event) => updateGisEvidenceField("field_mrv_reference", event.target.value)} required />
+                    <TextField label="Verifier notes" value={gisEvidenceForm.verifier_notes} onChange={(event) => updateGisEvidenceField("verifier_notes", event.target.value)} required />
+                  </div>
+                </Box>
+              </Paper>
+
               <div className="min-h-[360px] rounded-lg border bg-[linear-gradient(rgba(14,165,233,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(14,165,233,.18)_1px,transparent_1px)] bg-[size:36px_36px] p-6">
                 <div className="flex h-full min-h-[320px] items-center justify-center rounded-md border border-sky-200 bg-white/75">
                   <div className="text-center">
@@ -567,6 +676,17 @@ export default function RegistryConsole() {
                     <Alert severity={gisAssessment.boundary_validation_status === "validated" ? "success" : "warning"}>
                       {gisAssessment.recommendation}
                     </Alert>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      <Button variant="contained" color="success" onClick={() => decideGisValidation("valid")} disabled={isLoading || evidenceRecords.length === 0}>
+                        Mark GIS Valid
+                      </Button>
+                      <Button variant="outlined" onClick={() => decideGisValidation("requires_revision")} disabled={isLoading || evidenceRecords.length === 0}>
+                        Request Revision
+                      </Button>
+                      <Button variant="outlined" color="error" onClick={() => decideGisValidation("invalid")} disabled={isLoading || evidenceRecords.length === 0}>
+                        Mark Invalid
+                      </Button>
+                    </Stack>
                   </>
                 ) : (
                   <Alert severity="info">No GIS assessment has been run for this selected project yet.</Alert>
@@ -575,6 +695,30 @@ export default function RegistryConsole() {
 
               {gisAssessment && (
                 <div className="xl:col-span-2 grid gap-4 lg:grid-cols-2">
+                  <div className="lg:col-span-2">
+                    <Typography variant="h6" fontWeight={800}>
+                      Evidence ledger
+                    </Typography>
+                    <Stack spacing={1.5} className="mt-3">
+                      {evidenceRecords.filter((record) => record.evidence_type.includes("gis")).length === 0 ? (
+                        <Alert severity="info">No GIS evidence submitted yet.</Alert>
+                      ) : (
+                        evidenceRecords
+                          .filter((record) => record.evidence_type.includes("gis"))
+                          .map((record) => (
+                            <div key={record.id} className="rounded-lg border p-4">
+                              <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
+                                <div>
+                                  <strong className="block text-zai-ink">{record.evidence_type}</strong>
+                                  <span className="text-sm text-slate-600">{record.status} - {new Date(record.created_at).toLocaleString()}</span>
+                                </div>
+                                <Chip size="small" label={record.status} color={record.status === "valid" ? "success" : "primary"} variant="outlined" />
+                              </div>
+                            </div>
+                          ))
+                      )}
+                    </Stack>
+                  </div>
                   <div>
                     <Typography variant="h6" fontWeight={800}>
                       GIS layers
@@ -620,7 +764,7 @@ export default function RegistryConsole() {
           )}
         </Paper>
       ) : activeTab === "ai" ? (
-        <Paper elevation={0} className="border p-8">
+        <Paper elevation={0} className="workspace-panel border p-8">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
             <div>
               <Typography variant="h5" fontWeight={900}>
@@ -669,6 +813,36 @@ export default function RegistryConsole() {
                     </div>
                   </div>
                   <Alert severity={aiReview.risk_level === "low" ? "success" : "warning"}>{aiReview.recommendation}</Alert>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Button variant="contained" color="success" onClick={() => decideAiValidation("valid")} disabled={isLoading}>
+                      Mark AI Valid
+                    </Button>
+                    <Button variant="outlined" onClick={() => decideAiValidation("requires_revision")} disabled={isLoading}>
+                      Request Human Revision
+                    </Button>
+                    <Button variant="outlined" color="error" onClick={() => decideAiValidation("invalid")} disabled={isLoading}>
+                      Reject AI Review
+                    </Button>
+                  </Stack>
+                  <div>
+                    <Typography variant="h6" fontWeight={800}>
+                      AI validation ledger
+                    </Typography>
+                    <Stack spacing={1.5} className="mt-3">
+                      {evidenceRecords.filter((record) => record.evidence_type.includes("ai")).length === 0 ? (
+                        <Alert severity="info">AI review has not been human validated yet.</Alert>
+                      ) : (
+                        evidenceRecords
+                          .filter((record) => record.evidence_type.includes("ai"))
+                          .map((record) => (
+                            <div key={record.id} className="rounded-lg border p-4">
+                              <strong className="block text-zai-ink">{record.evidence_type}</strong>
+                              <span className="text-sm text-slate-600">{record.status} - {new Date(record.created_at).toLocaleString()}</span>
+                            </div>
+                          ))
+                      )}
+                    </Stack>
+                  </div>
                   <div className="grid gap-4 xl:grid-cols-2">
                     <div>
                       <Typography variant="h6" fontWeight={800}>

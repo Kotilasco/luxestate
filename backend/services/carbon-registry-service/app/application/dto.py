@@ -122,6 +122,39 @@ class AiReviewResponse(BaseModel):
     generated_at: datetime
 
 
+class GisEvidenceSubmissionRequest(BaseModel):
+    boundary_geojson: str = Field(min_length=20)
+    satellite_scene_id: str = Field(min_length=3, max_length=160)
+    land_cover_source: str = Field(min_length=3, max_length=160)
+    fire_alert_source: str = Field(min_length=3, max_length=160)
+    field_mrv_reference: str = Field(min_length=3, max_length=160)
+    verifier_notes: str = Field(min_length=10, max_length=1000)
+
+
+class EvidenceRecordResponse(BaseModel):
+    id: UUID
+    evidence_type: str
+    status: str
+    submitted_by: UUID | None
+    submitted_role: str | None
+    metadata: dict[str, object]
+    created_at: datetime
+
+
+class ValidationDecisionRequest(BaseModel):
+    decision: Literal["valid", "invalid", "requires_revision"]
+    notes: str = Field(min_length=5, max_length=1000)
+
+
+class ValidationDecisionResponse(BaseModel):
+    project_id: UUID
+    validation_type: str
+    status: str
+    notes: str
+    validated_by: UUID | None
+    generated_at: datetime
+
+
 class ErrorResponse(BaseModel):
     code: str
     message: str
