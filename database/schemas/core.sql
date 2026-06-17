@@ -97,3 +97,17 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_resource
 
 CREATE INDEX IF NOT EXISTS idx_audit_events_correlation
     ON audit.audit_events (correlation_id);
+
+INSERT INTO identity.organizations (
+    id,
+    legal_name,
+    registration_number,
+    organization_type,
+    status
+) VALUES (
+    '11111111-1111-4111-8111-111111111111',
+    'Zimbabwe Climate Authority',
+    'ZCA-BOOTSTRAP-001',
+    'regulator',
+    'active'
+) ON CONFLICT (registration_number) DO NOTHING;

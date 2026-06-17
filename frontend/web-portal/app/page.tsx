@@ -5,6 +5,8 @@ import MapIcon from "@mui/icons-material/Map";
 import SecurityIcon from "@mui/icons-material/Security";
 import VerifiedIcon from "@mui/icons-material/Verified";
 
+import RegistryConsole from "../components/RegistryConsole";
+
 const metrics = [
   ["714+", "Registered Projects"],
   ["48%", "MRV Automation Coverage"],
@@ -64,6 +66,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <RegistryConsole />
 
       <section className="mx-auto max-w-7xl px-6 py-20">
         <div className="text-center">
