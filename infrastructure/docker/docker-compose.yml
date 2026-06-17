@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: zai_cts
       POSTGRES_PASSWORD: zai_cts
     ports:
-      - "5432:5432"
+      - "55432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ../../database/schemas/core.sql:/docker-entrypoint-initdb.d/001_core.sql:ro
@@ -19,14 +19,14 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: ["redis-server", "--appendonly", "yes"]
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5673:5672"
+      - "15673:15672"
 
   carbon-registry-service:
     build:
@@ -50,7 +50,7 @@ services:
     depends_on:
       - carbon-registry-service
     ports:
-      - "8080:8080"
+      - "8082:8080"
 
   web-portal:
     build:

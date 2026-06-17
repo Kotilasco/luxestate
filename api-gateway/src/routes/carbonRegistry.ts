@@ -3,6 +3,18 @@ import { request } from "undici";
 
 import { config } from "../config.js";
 
+function forwardHeaders(incomingHeaders: Record<string, string | string[] | undefined>) {
+  const headers: Record<string, string> = {};
+  for (const name of ["x-correlation-id", "x-actor-id", "x-actor-role"]) {
+    const value = incomingHeaders[name];
+    const normalized = Array.isArray(value) ? value[0] : value;
+    if (normalized && normalized.trim().length > 0) {
+      headers[name] = normalized;
+    }
+  }
+  return headers;
+}
+
 export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> {
   app.all("/api/v1/projects", async (incoming, reply) => {
     const url = new URL("/api/v1/projects", config.CARBON_REGISTRY_URL);
@@ -16,9 +28,7 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
       method: incoming.method,
       headers: {
         "content-type": "application/json",
-        "x-correlation-id": incoming.headers["x-correlation-id"]?.toString() ?? "",
-        "x-actor-id": incoming.headers["x-actor-id"]?.toString() ?? "",
-        "x-actor-role": incoming.headers["x-actor-role"]?.toString() ?? ""
+        ...forwardHeaders(incoming.headers)
       },
       body: incoming.body ? JSON.stringify(incoming.body) : undefined
     });
@@ -34,11 +44,7 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
 
     const upstream = await request(url, {
       method: "GET",
-      headers: {
-        "x-correlation-id": incoming.headers["x-correlation-id"]?.toString() ?? "",
-        "x-actor-id": incoming.headers["x-actor-id"]?.toString() ?? "",
-        "x-actor-role": incoming.headers["x-actor-role"]?.toString() ?? ""
-      }
+      headers: forwardHeaders(incoming.headers)
     });
 
     reply.statusCode = upstream.statusCode;
