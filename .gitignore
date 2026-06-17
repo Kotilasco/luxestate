@@ -1,0 +1,16 @@
+/.env
+/vendor
+/node_modules
+/storage/logs/*.log
+/storage/framework/cache/*
+!/storage/framework/cache/.gitkeep
+/storage/framework/cache/data/*
+!/storage/framework/cache/data/.gitkeep
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitkeep
+/storage/framework/views/*
+!/storage/framework/views/.gitkeep
+/bootstrap/cache/*.php
+/screenshots
+/.edge-capture-*
+LuxEstate.zip
