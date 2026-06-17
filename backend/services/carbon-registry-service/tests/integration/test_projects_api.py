@@ -117,11 +117,11 @@ class CapturingAuditWriter(AuditWriter, AuditReader):
         return None
 
     async def list_for_resource(self, resource_type: str, resource_id: UUID, limit: int) -> list[object]:
-        return [
+        return list(reversed([
             event
             for event in self.events
             if getattr(event, "resource_type") == resource_type and getattr(event, "resource_id") == resource_id
-        ][:limit]
+        ]))[:limit]
 
 
 @pytest.mark.asyncio
@@ -188,6 +188,58 @@ async def test_projects_api_register_and_list() -> None:
             )
             assert workflow_response.status_code == 200
             assert workflow_response.json()["status"] == expected_status
+
+        start_verification_response = await client.post(
+            f"/api/v1/projects/{project_id}/verification/start",
+            headers={"X-Actor-Role": "project_developer.owner"},
+            json={
+                "monitoring_period_start": "2026-01-01",
+                "monitoring_period_end": "2026-12-31",
+                "assigned_verifier": "Zimbabwe Accredited Verifier Pool",
+            },
+        )
+        assert start_verification_response.status_code == 201
+        verification_id = start_verification_response.json()["verification_id"]
+
+        evidence_package_response = await client.post(
+            f"/api/v1/projects/{project_id}/verification/evidence-package",
+            headers={"X-Actor-Role": "project_developer.owner"},
+            json={
+                "package_notes": "Complete evidence package.",
+                "files": [
+                    {"file_name": "boundary.geojson", "category": "boundary", "mime_type": "application/geo+json", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-BOUNDARY"},
+                    {"file_name": "monitoring-report.pdf", "category": "monitoring_report", "mime_type": "application/pdf", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-MR-2026"},
+                    {"file_name": "carbon.xlsx", "category": "carbon_calculation", "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-CARBON"},
+                    {"file_name": "biomass.csv", "category": "biomass_inventory", "mime_type": "text/csv", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-BIOMASS"},
+                    {"file_name": "sentinel.json", "category": "satellite_imagery", "mime_type": "application/json", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-SAT-2026"},
+                    {"file_name": "photos.zip", "category": "field_photo", "mime_type": "application/zip", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-PHOTO-2026"},
+                    {"file_name": "inspection.pdf", "category": "inspection_form", "mime_type": "application/pdf", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-INSPECT-2026"},
+                    {"file_name": "drone.zip", "category": "drone_imagery", "mime_type": "application/zip", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-DRONE-2026"},
+                    {"file_name": "verifier.pdf", "category": "verifier_statement", "mime_type": "application/pdf", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-VERIFIER"},
+                    {"file_name": "accreditation.pdf", "category": "accreditation_certificate", "mime_type": "application/pdf", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-ACCREDIT"},
+                    {"file_name": "signature.txt", "category": "digital_signature", "mime_type": "text/plain", "file_size_bytes": 1000, "capture_date": "2026-12-31", "digital_signature": "SIG-DIGITAL-2026"},
+                ],
+            },
+        )
+        assert evidence_package_response.status_code == 200
+        assert evidence_package_response.json()["verification_id"] == verification_id
+        assert evidence_package_response.json()["evidence_complete"] is True
+
+        automatic_response = await client.post(f"/api/v1/projects/{project_id}/verification/automatic-validation")
+        assert automatic_response.status_code == 200
+        assert automatic_response.json()["status"] == "pass"
+
+        verification_ai_response = await client.post(f"/api/v1/projects/{project_id}/verification/ai-assessment")
+        assert verification_ai_response.status_code == 200
+        assert verification_ai_response.json()["stage"] == "ai_review"
+
+        for stage, decision in [("gis", "approve"), ("mrv", "pass"), ("verifier", "approve"), ("zicma", "approve")]:
+            decision_response = await client.post(
+                f"/api/v1/projects/{project_id}/verification/{stage}-decision",
+                headers={"X-Actor-Role": "regulator.approver"},
+                json={"decision": decision, "comments": f"{stage} decision accepted.", "digital_signature": f"SIG-{stage.upper()}-2026"},
+            )
+            assert decision_response.status_code == 200
 
         credit_response = await client.post(
             f"/api/v1/projects/{project_id}/credits",

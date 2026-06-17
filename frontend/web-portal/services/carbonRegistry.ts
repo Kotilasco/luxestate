@@ -107,6 +107,69 @@ export type ValidationDecision = {
   generated_at: string;
 };
 
+export type VerificationCase = {
+  verification_id: string;
+  project_id: string;
+  status: string;
+  assigned_verifier: string;
+  monitoring_period_start: string;
+  monitoring_period_end: string;
+  evidence_complete: boolean;
+  automatic_validation_status: string;
+  ai_status: string;
+  gis_status: string;
+  mrv_status: string;
+  verifier_status: string;
+  zicma_status: string;
+  integrity_score: string | null;
+  risk_score: string | null;
+  confidence_score: string | null;
+  outstanding_actions: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type VerificationFile = {
+  file_name: string;
+  category:
+    | "boundary"
+    | "monitoring_report"
+    | "carbon_calculation"
+    | "biomass_inventory"
+    | "satellite_imagery"
+    | "field_photo"
+    | "inspection_form"
+    | "drone_imagery"
+    | "verifier_statement"
+    | "accreditation_certificate"
+    | "digital_signature";
+  mime_type: string;
+  file_size_bytes: number;
+  capture_date?: string;
+  digital_signature: string;
+};
+
+export type VerificationAssessment = {
+  verification_id: string;
+  stage: string;
+  status: string;
+  integrity_score: string | null;
+  risk_score: string | null;
+  confidence_score: string | null;
+  findings: string[];
+  required_actions: string[];
+  generated_at: string;
+};
+
+export type VerificationDecisionResult = {
+  verification_id: string;
+  stage: string;
+  status: string;
+  comments: string;
+  digital_signature: string;
+  generated_at: string;
+};
+
 export type RegisterCarbonProjectPayload = {
   project_code: string;
   title: string;
@@ -294,6 +357,95 @@ export async function validateAiReview(
     throw new Error(body || `AI validation failed with ${response.status}`);
   }
 
+  return response.json();
+}
+
+export async function getVerificationCase(projectId: string): Promise<VerificationCase | null> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Verification case load failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function startVerificationCase(projectId: string): Promise<VerificationCase> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/start`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify({
+      monitoring_period_start: "2026-01-01",
+      monitoring_period_end: "2026-12-31",
+      assigned_verifier: "Zimbabwe Accredited Verifier Pool"
+    })
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Verification start failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function uploadVerificationEvidencePackage(projectId: string, files: VerificationFile[]) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/evidence-package`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify({
+      files,
+      package_notes: "Complete verification evidence package submitted through the ZAI-CTS portal."
+    })
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Verification evidence upload failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function runAutomaticVerification(projectId: string): Promise<VerificationAssessment> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/automatic-validation`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: "{}"
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Automatic validation failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function runVerificationAiAssessment(projectId: string): Promise<VerificationAssessment> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/ai-assessment`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: "{}"
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Verification AI assessment failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function decideVerificationStage(
+  projectId: string,
+  stage: "gis" | "mrv" | "verifier" | "zicma",
+  decision: "pass" | "warning" | "fail" | "approve" | "reject" | "request_more_information" | "return_for_revision",
+  comments: string
+): Promise<VerificationDecisionResult> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/${stage}-decision`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify({
+      decision,
+      comments,
+      digital_signature: `SIG-${stage.toUpperCase()}-${crypto.randomUUID()}`
+    })
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Verification ${stage} decision failed with ${response.status}`);
+  }
   return response.json();
 }
 

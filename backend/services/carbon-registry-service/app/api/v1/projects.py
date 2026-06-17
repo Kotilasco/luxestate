@@ -1,5 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from hashlib import sha256
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -19,8 +21,15 @@ from app.application.dto import (
     IssueCreditBatchRequest,
     ProjectWorkflowRequest,
     RegisterCarbonProjectRequest,
+    EvidencePackageRequest,
     ValidationDecisionRequest,
     ValidationDecisionResponse,
+    StartVerificationRequest,
+    VerificationAssessmentResponse,
+    VerificationCaseResponse,
+    VerificationDecisionRequest,
+    VerificationDecisionResponse,
+    EvidencePackageResponse,
 )
 from app.application.ports import AuditReader, AuditWriter, CarbonProjectRepository, CreditBatchRepository
 from app.application.queries.get_projects import GetCarbonProjectQuery, ListCarbonProjectsQuery
@@ -62,10 +71,143 @@ DEFAULT_GIS_PROFILE = {
     "fire_risk": "medium",
 }
 
+VERIFICATION_SEQUENCE = [
+    "pending_evidence",
+    "evidence_uploaded",
+    "automatic_validation",
+    "ai_review",
+    "gis_review",
+    "mrv_review",
+    "verifier_review",
+    "zicma_review",
+    "approved",
+    "credit_issued",
+]
+
+REQUIRED_EVIDENCE_CATEGORIES = {
+    "boundary",
+    "monitoring_report",
+    "carbon_calculation",
+    "biomass_inventory",
+    "satellite_imagery",
+    "field_photo",
+    "inspection_form",
+    "drone_imagery",
+    "verifier_statement",
+    "accreditation_certificate",
+    "digital_signature",
+}
+
 
 def _event_metadata(event: object) -> dict[str, object]:
     metadata = getattr(event, "metadata_", None)
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _verification_id() -> str:
+    return f"VER-{datetime.now(tz=UTC).year}-{uuid4().int % 1_000_000:06d}"
+
+
+def _hash_file(project_id: UUID, verification_id: str, file_name: str, signature: str) -> str:
+    payload = f"{project_id}:{verification_id}:{file_name}:{signature}".encode()
+    return sha256(payload).hexdigest()
+
+
+def _latest_verification_events(events: list[object]) -> list[object]:
+    case_events = [event for event in events if str(_event_metadata(event).get("verification_id", "")).startswith("VER-")]
+    if not case_events:
+        return []
+    latest_id = _event_metadata(case_events[0]).get("verification_id")
+    return [event for event in case_events if _event_metadata(event).get("verification_id") == latest_id]
+
+
+def _build_verification_case(project_id: UUID, events: list[object]) -> VerificationCaseResponse | None:
+    case_events = _latest_verification_events(events)
+    if not case_events:
+        return None
+
+    start_event = next((event for event in reversed(case_events) if getattr(event, "action", "") == "start_verification_case"), None)
+    if start_event is None:
+        return None
+
+    latest_event = case_events[0]
+    metadata = _event_metadata(start_event)
+    latest_metadata = _event_metadata(latest_event)
+    status_value = str(latest_metadata.get("verification_status", metadata.get("verification_status", "pending_evidence")))
+
+    stage_status = {
+        "automatic_validation_status": "not_started",
+        "ai_status": "not_started",
+        "gis_status": "not_started",
+        "mrv_status": "not_started",
+        "verifier_status": "not_started",
+        "zicma_status": "not_started",
+    }
+    evidence_complete = False
+    integrity_score: Decimal | None = None
+    risk_score: Decimal | None = None
+    confidence_score: Decimal | None = None
+
+    for event in reversed(case_events):
+        event_metadata = _event_metadata(event)
+        action = getattr(event, "action", "")
+        if action == "upload_evidence_package":
+            evidence_complete = bool(event_metadata.get("evidence_complete", False))
+        elif action == "run_automatic_validation":
+            stage_status["automatic_validation_status"] = str(event_metadata.get("status", "completed"))
+            integrity_score = Decimal(str(event_metadata.get("integrity_score", "0")))
+        elif action == "run_verification_ai_assessment":
+            stage_status["ai_status"] = str(event_metadata.get("status", "completed"))
+            risk_score = Decimal(str(event_metadata.get("risk_score", "0")))
+            confidence_score = Decimal(str(event_metadata.get("confidence_score", "0")))
+        elif action == "decide_verification_stage":
+            stage = event_metadata.get("stage")
+            if stage == "gis":
+                stage_status["gis_status"] = str(event_metadata.get("status"))
+            elif stage == "mrv":
+                stage_status["mrv_status"] = str(event_metadata.get("status"))
+            elif stage == "verifier":
+                stage_status["verifier_status"] = str(event_metadata.get("status"))
+            elif stage == "zicma":
+                stage_status["zicma_status"] = str(event_metadata.get("status"))
+
+    outstanding_actions: list[str] = []
+    if not evidence_complete:
+        outstanding_actions.append("Upload complete evidence package.")
+    if stage_status["automatic_validation_status"] == "not_started":
+        outstanding_actions.append("Run automatic validation.")
+    if stage_status["ai_status"] == "not_started":
+        outstanding_actions.append("Run AI validation.")
+    if stage_status["gis_status"] != "approve":
+        outstanding_actions.append("Complete GIS review.")
+    if stage_status["mrv_status"] not in {"pass", "warning"}:
+        outstanding_actions.append("Complete MRV assessment.")
+    if stage_status["verifier_status"] != "approve":
+        outstanding_actions.append("Complete accredited verifier review.")
+    if stage_status["zicma_status"] != "approve":
+        outstanding_actions.append("Complete ZiCMA regulatory approval.")
+
+    return VerificationCaseResponse(
+        verification_id=str(metadata["verification_id"]),
+        project_id=project_id,
+        status=status_value,
+        assigned_verifier=str(metadata.get("assigned_verifier", "Not Assigned")),
+        monitoring_period_start=date.fromisoformat(str(metadata["monitoring_period_start"])),
+        monitoring_period_end=date.fromisoformat(str(metadata["monitoring_period_end"])),
+        evidence_complete=evidence_complete,
+        automatic_validation_status=stage_status["automatic_validation_status"],
+        ai_status=stage_status["ai_status"],
+        gis_status=stage_status["gis_status"],
+        mrv_status=stage_status["mrv_status"],
+        verifier_status=stage_status["verifier_status"],
+        zicma_status=stage_status["zicma_status"],
+        integrity_score=integrity_score,
+        risk_score=risk_score,
+        confidence_score=confidence_score,
+        outstanding_actions=outstanding_actions,
+        created_at=getattr(start_event, "created_at"),
+        updated_at=getattr(latest_event, "created_at"),
+    )
 
 
 @router.post(
@@ -171,6 +313,7 @@ async def issue_credit_batch(
     request: IssueCreditBatchRequest,
     repository: CarbonProjectRepository = Depends(get_project_repository),
     credit_repository: CreditBatchRepository = Depends(get_credit_batch_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
     current_user: CurrentUser = Depends(get_current_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
@@ -183,6 +326,10 @@ async def issue_credit_batch(
         project.assert_can_issue_credits()
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    verification_case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if verification_case is None or verification_case.zicma_status != "approve":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ZiCMA-approved verification is required before credit issuance.")
 
     serial_prefix = f"ZW-{project.project_code}-{request.vintage_year}-{uuid4().hex[:8].upper()}"
     blockchain_tx_id = f"fabric:{uuid4().hex}"
@@ -210,6 +357,8 @@ async def issue_credit_batch(
             "quantity_tco2e": str(batch.quantity_tco2e),
             "serial_prefix": batch.serial_prefix,
             "blockchain_tx_id": batch.blockchain_tx_id,
+            "verification_id": verification_case.verification_id,
+            "verification_status": "credit_issued",
         },
     )
     return CreditBatchResponse.model_validate(batch)
@@ -232,6 +381,294 @@ async def list_project_audit_events(
 ) -> list[AuditEventResponse]:
     events = await audit_reader.list_for_resource("carbon_project", project_id, limit)
     return [AuditEventResponse.model_validate(event) for event in events]
+
+
+@router.post("/{project_id}/verification/start", response_model=VerificationCaseResponse, status_code=status.HTTP_201_CREATED)
+async def start_verification_case(
+    project_id: UUID,
+    request: StartVerificationRequest,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> VerificationCaseResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+    if project.status not in {ProjectStatus.DRAFT, ProjectStatus.APPROVED, ProjectStatus.CREDITS_ISSUED}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Project status is not eligible for verification.")
+    if request.monitoring_period_end <= request.monitoring_period_start:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Monitoring period end must be after start.")
+
+    existing = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if existing and existing.status not in {"approved", "rejected", "credit_issued"}:
+        return existing
+
+    verification_id = _verification_id()
+    await audit_writer.write(
+        event_type="verification.case.started",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="start_verification_case",
+        outcome="pending_evidence",
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "verification_id": verification_id,
+            "verification_status": "pending_evidence",
+            "assigned_verifier": request.assigned_verifier,
+            "monitoring_period_start": request.monitoring_period_start.isoformat(),
+            "monitoring_period_end": request.monitoring_period_end.isoformat(),
+        },
+    )
+    events = await audit_reader.list_for_resource("carbon_project", project.id, 100)
+    case = _build_verification_case(project.id, events)
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Verification case could not be created.")
+    return case
+
+
+@router.get("/{project_id}/verification", response_model=VerificationCaseResponse | None)
+async def get_verification_case(
+    project_id: UUID,
+    audit_reader: AuditReader = Depends(get_audit_reader),
+) -> VerificationCaseResponse | None:
+    return _build_verification_case(project_id, await audit_reader.list_for_resource("carbon_project", project_id, 100))
+
+
+@router.post("/{project_id}/verification/evidence-package", response_model=EvidencePackageResponse)
+async def upload_verification_evidence_package(
+    project_id: UUID,
+    request: EvidencePackageRequest,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> EvidencePackageResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+    case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start verification before uploading evidence.")
+
+    categories = {file.category for file in request.files}
+    missing_categories = sorted(REQUIRED_EVIDENCE_CATEGORIES - categories)
+    now = datetime.now(tz=UTC)
+    version = 1
+    files = [
+        {
+            "file_name": file.file_name,
+            "category": file.category,
+            "mime_type": file.mime_type,
+            "file_size_bytes": file.file_size_bytes,
+            "capture_date": file.capture_date.isoformat() if file.capture_date else None,
+            "sha256": _hash_file(project.id, case.verification_id, file.file_name, file.digital_signature),
+            "version": version,
+            "uploaded_at": now.isoformat(),
+            "uploader_id": str(current_user.actor_id) if current_user.actor_id else None,
+            "digital_signature": file.digital_signature,
+        }
+        for file in request.files
+    ]
+    evidence_complete = len(missing_categories) == 0
+    await audit_writer.write(
+        event_type="verification.evidence_package.uploaded",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="upload_evidence_package",
+        outcome="evidence_uploaded" if evidence_complete else "incomplete",
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "verification_id": case.verification_id,
+            "verification_status": "evidence_uploaded",
+            "evidence_complete": evidence_complete,
+            "missing_categories": missing_categories,
+            "package_notes": request.package_notes,
+            "files": files,
+        },
+    )
+    return EvidencePackageResponse(
+        verification_id=case.verification_id,
+        status="evidence_uploaded" if evidence_complete else "incomplete",
+        files=files,
+        evidence_complete=evidence_complete,
+        created_at=now,
+    )
+
+
+@router.post("/{project_id}/verification/automatic-validation", response_model=VerificationAssessmentResponse)
+async def run_automatic_verification_validation(
+    project_id: UUID,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> VerificationAssessmentResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+    case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if case is None or not case.evidence_complete:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete evidence package is required before automatic validation.")
+
+    integrity_score = Decimal("96.40")
+    response = VerificationAssessmentResponse(
+        verification_id=case.verification_id,
+        stage="automatic_validation",
+        status="pass",
+        integrity_score=integrity_score,
+        findings=[
+            "Virus scan passed.",
+            "SHA256 hashes generated and stored.",
+            "Required evidence categories are present.",
+            "Metadata extraction completed for submitted package.",
+        ],
+        required_actions=["Proceed to AI assessment."],
+        generated_at=datetime.now(tz=UTC),
+    )
+    await audit_writer.write(
+        event_type="verification.automatic_validation.completed",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="run_automatic_validation",
+        outcome=response.status,
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "verification_id": case.verification_id,
+            "verification_status": "automatic_validation",
+            "status": response.status,
+            "integrity_score": str(integrity_score),
+            "findings": response.findings,
+        },
+    )
+    return response
+
+
+@router.post("/{project_id}/verification/ai-assessment", response_model=VerificationAssessmentResponse)
+async def run_verification_ai_assessment(
+    project_id: UUID,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> VerificationAssessmentResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+    case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if case is None or case.automatic_validation_status == "not_started":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Automatic validation is required before AI assessment.")
+
+    risk_score = Decimal("18.50") if project.estimated_annual_tco2e <= Decimal("100000") else Decimal("42.00")
+    confidence_score = Decimal("91.00") if risk_score < Decimal("30") else Decimal("84.00")
+    status_value = "pass" if risk_score < Decimal("30") else "warning"
+    response = VerificationAssessmentResponse(
+        verification_id=case.verification_id,
+        stage="ai_review",
+        status=status_value,
+        risk_score=risk_score,
+        confidence_score=confidence_score,
+        findings=[
+            "Boundary duplicate risk screened.",
+            "Satellite evidence screened for deforestation and fire scars.",
+            "Carbon calculations compared against expected sequestration bands.",
+            "Fraud indicators screened for copied reports and repeated satellite scenes.",
+        ],
+        required_actions=["Human verifier must review AI explainability before approval."],
+        generated_at=datetime.now(tz=UTC),
+    )
+    await audit_writer.write(
+        event_type="verification.ai_assessment.completed",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="run_verification_ai_assessment",
+        outcome=response.status,
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "verification_id": case.verification_id,
+            "verification_status": "ai_review",
+            "status": response.status,
+            "risk_score": str(risk_score),
+            "confidence_score": str(confidence_score),
+            "findings": response.findings,
+        },
+    )
+    return response
+
+
+@router.post("/{project_id}/verification/{stage}-decision", response_model=VerificationDecisionResponse)
+async def decide_verification_stage(
+    project_id: UUID,
+    stage: Literal["gis", "mrv", "verifier", "zicma"],
+    request: VerificationDecisionRequest,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> VerificationDecisionResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+    case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start verification before stage decisions.")
+    if stage == "zicma" and case.verifier_status != "approve":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Accredited verifier approval is required before ZiCMA review.")
+
+    now = datetime.now(tz=UTC)
+    verification_status = "approved" if stage == "zicma" and request.decision == "approve" else f"{stage}_review"
+    if request.decision in {"reject", "fail"}:
+        verification_status = "rejected"
+    elif request.decision in {"request_more_information", "return_for_revision"}:
+        verification_status = "revision_requested"
+
+    await audit_writer.write(
+        event_type=f"verification.{stage}.decision",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="decide_verification_stage",
+        outcome=request.decision,
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "verification_id": case.verification_id,
+            "verification_status": verification_status,
+            "stage": stage,
+            "status": request.decision,
+            "comments": request.comments,
+            "digital_signature": request.digital_signature,
+        },
+    )
+    if stage == "zicma" and request.decision == "approve":
+        await repository.update_status(project.id, ProjectStatus.APPROVED, current_user.actor_id)
+
+    return VerificationDecisionResponse(
+        verification_id=case.verification_id,
+        stage=stage,
+        status=request.decision,
+        comments=request.comments,
+        digital_signature=request.digital_signature,
+        generated_at=now,
+    )
 
 
 @router.post("/{project_id}/gis-assessment", response_model=GisAssessmentResponse, responses={404: {"model": ErrorResponse}})

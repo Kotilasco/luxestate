@@ -3,12 +3,15 @@
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import AddCircleIcon from "@mui/icons-material/AddCircle";
 import AnalyticsIcon from "@mui/icons-material/Analytics";
+import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
+import DashboardIcon from "@mui/icons-material/Dashboard";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import GavelIcon from "@mui/icons-material/Gavel";
 import MapIcon from "@mui/icons-material/Map";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SendIcon from "@mui/icons-material/Send";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import {
   Alert,
@@ -36,8 +39,10 @@ import {
   AuditEvent,
   CarbonProject,
   CreditBatch,
+  decideVerificationStage,
   EvidenceRecord,
   fetchGatewayHealth,
+  getVerificationCase,
   GisAssessment,
   GisEvidencePayload,
   issueCreditBatch,
@@ -47,10 +52,17 @@ import {
   listEvidence,
   registerCarbonProject,
   runAiReview,
+  runAutomaticVerification,
   runGisAssessment,
+  runVerificationAiAssessment,
+  startVerificationCase,
   submitGisEvidence,
+  uploadVerificationEvidencePackage,
   validateAiReview,
   validateGisEvidence,
+  VerificationAssessment,
+  VerificationCase,
+  VerificationFile,
   WorkflowAction
 } from "../services/carbonRegistry";
 
@@ -64,6 +76,19 @@ const workflowSteps = [
   "Credits Issued"
 ];
 
+const VERIFICATION_SEQUENCE = [
+  "pending_evidence",
+  "evidence_uploaded",
+  "automatic_validation",
+  "ai_review",
+  "gis_review",
+  "mrv_review",
+  "verifier_review",
+  "zicma_review",
+  "approved",
+  "credit_issued"
+];
+
 const statusStep: Record<string, number> = {
   draft: 0,
   submitted_for_verification: 1,
@@ -75,7 +100,9 @@ const statusStep: Record<string, number> = {
 };
 
 const workspaceLinks = [
+  ["dashboard", "Dashboard", <DashboardIcon key="dashboard" />],
   ["registry", "Registry", <VerifiedIcon key="registry" />],
+  ["verification", "Verification", <AssignmentTurnedInIcon key="verification" />],
   ["gis", "GIS", <MapIcon key="gis" />],
   ["ai", "AI Review", <AnalyticsIcon key="ai" />],
   ["marketplace", "Marketplace", <PaymentsIcon key="marketplace" />],
@@ -148,6 +175,8 @@ export default function RegistryConsole() {
   const [evidenceRecords, setEvidenceRecords] = useState<EvidenceRecord[]>([]);
   const [gisAssessment, setGisAssessment] = useState<GisAssessment | null>(null);
   const [aiReview, setAiReview] = useState<AiReview | null>(null);
+  const [verificationCase, setVerificationCase] = useState<VerificationCase | null>(null);
+  const [verificationAssessment, setVerificationAssessment] = useState<VerificationAssessment | null>(null);
   const [gisEvidenceForm, setGisEvidenceForm] = useState<GisEvidencePayload>({
     boundary_geojson:
       '{"type":"Feature","properties":{"name":"Kariba block A"},"geometry":{"type":"Polygon","coordinates":[[[28.72,-16.45],[28.92,-16.45],[28.92,-16.62],[28.72,-16.62],[28.72,-16.45]]]}}',
@@ -158,7 +187,7 @@ export default function RegistryConsole() {
     verifier_notes: "Boundary, satellite and field MRV pack uploaded by accredited verifier for regulator review."
   });
   const [form, setForm] = useState<FormState>(() => createInitialForm());
-  const [activeTab, setActiveTab] = useState("registry");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
 
@@ -187,18 +216,22 @@ export default function RegistryConsole() {
       setEvidenceRecords([]);
       setGisAssessment(null);
       setAiReview(null);
+      setVerificationCase(null);
+      setVerificationAssessment(null);
     }
   }
 
   async function loadProjectDetails(projectId: string) {
-    const [creditResponse, auditResponse, evidenceResponse] = await Promise.all([
+    const [creditResponse, auditResponse, evidenceResponse, verificationResponse] = await Promise.all([
       listCreditBatches(projectId),
       listAuditEvents(projectId),
-      listEvidence(projectId)
+      listEvidence(projectId),
+      getVerificationCase(projectId)
     ]);
     setCredits(creditResponse);
     setAuditEvents(auditResponse);
     setEvidenceRecords(evidenceResponse);
+    setVerificationCase(verificationResponse);
     setGisAssessment((current) => (current?.project_id === projectId ? current : null));
     setAiReview((current) => (current?.project_id === projectId ? current : null));
   }
@@ -375,6 +408,63 @@ export default function RegistryConsole() {
     await loadProjectDetails(projectId);
   }
 
+  function verificationFiles(): VerificationFile[] {
+    const signature = `SIG-${selectedProject?.project_code ?? "PROJECT"}-2026`;
+    return [
+      ["project-boundary.geojson", "boundary", "application/geo+json", 18422],
+      ["monitoring-report.pdf", "monitoring_report", "application/pdf", 992120],
+      ["carbon-calculations.xlsx", "carbon_calculation", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 221004],
+      ["biomass-inventory.csv", "biomass_inventory", "text/csv", 80442],
+      ["sentinel-scene-metadata.json", "satellite_imagery", "application/json", 50220],
+      ["gps-photo-pack.zip", "field_photo", "application/zip", 2240122],
+      ["inspection-forms.pdf", "inspection_form", "application/pdf", 312002],
+      ["drone-imagery-index.zip", "drone_imagery", "application/zip", 4021200],
+      ["verifier-statement.pdf", "verifier_statement", "application/pdf", 202200],
+      ["accreditation-certificate.pdf", "accreditation_certificate", "application/pdf", 181040],
+      ["digital-signature.txt", "digital_signature", "text/plain", 2048]
+    ].map(([file_name, category, mime_type, file_size_bytes]) => ({
+      file_name: String(file_name),
+      category: category as VerificationFile["category"],
+      mime_type: String(mime_type),
+      file_size_bytes: Number(file_size_bytes),
+      capture_date: "2026-12-31",
+      digital_signature: signature
+    }));
+  }
+
+  async function runVerificationStep(step: "start" | "evidence" | "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      if (step === "start") {
+        setVerificationCase(await startVerificationCase(selectedProject.id));
+      } else if (step === "evidence") {
+        await uploadVerificationEvidencePackage(selectedProject.id, verificationFiles());
+      } else if (step === "automatic") {
+        setVerificationAssessment(await runAutomaticVerification(selectedProject.id));
+      } else if (step === "ai") {
+        setVerificationAssessment(await runVerificationAiAssessment(selectedProject.id));
+      } else if (step === "gis") {
+        await decideVerificationStage(selectedProject.id, "gis", "approve", "GIS evidence, map layers and boundary inspection approved.");
+      } else if (step === "mrv") {
+        await decideVerificationStage(selectedProject.id, "mrv", "pass", "MRV calculations, leakage, baseline and permanence reviewed.");
+      } else if (step === "verifier") {
+        await decideVerificationStage(selectedProject.id, "verifier", "approve", "Accredited verifier approves with digital signature.");
+      } else if (step === "zicma") {
+        await decideVerificationStage(selectedProject.id, "zicma", "approve", "ZiCMA approval letter digitally signed and registry update authorized.");
+      }
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: `Verification step completed: ${step}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Verification step failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <section id="registry" className="enterprise-shell mx-auto max-w-7xl px-6 py-10">
       <div className="hero-band mb-6 flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
@@ -393,21 +483,164 @@ export default function RegistryConsole() {
         </Stack>
       </div>
 
-      <Paper elevation={0} className="nav-panel mb-6 border">
-        <Tabs value={activeTab} onChange={(_, value: string) => setActiveTab(value)} variant="scrollable" scrollButtons="auto">
-          {workspaceLinks.map(([value, label, icon]) => (
-            <Tab key={value.toString()} value={value} icon={icon} iconPosition="start" label={label} />
-          ))}
-        </Tabs>
-      </Paper>
+      <div className="app-frame grid gap-6 lg:grid-cols-[280px_1fr]">
+        <aside className="nav-panel sticky top-6 h-fit rounded-lg border bg-white/90 p-4">
+          <div className="mb-4 rounded-md bg-slate-900 p-4 text-white">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-200">National Platform</p>
+            <strong className="mt-2 block text-xl">ZAI-CTS</strong>
+            <span className="text-sm text-slate-300">Verification command centre</span>
+          </div>
+          <Stack spacing={1}>
+            {workspaceLinks.map(([value, label, icon]) => (
+              <button
+                key={value.toString()}
+                type="button"
+                onClick={() => setActiveTab(value.toString())}
+                className={`flex items-center gap-3 rounded-md px-4 py-3 text-left text-sm font-bold transition ${
+                  activeTab === value ? "bg-sky-100 text-zai-blue shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-zai-ink"
+                }`}
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-sky-700 shadow-sm">{icon}</span>
+                {label}
+              </button>
+            ))}
+          </Stack>
+          <Divider className="my-4" />
+          <div className="rounded-md bg-sky-50 p-4">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Selected Project</span>
+            <strong className="mt-2 block text-sm text-zai-ink">{selectedProject?.project_code ?? "None"}</strong>
+            <p className="mt-1 text-xs leading-5 text-slate-600">{selectedProject?.title ?? "Register or select a project to begin."}</p>
+          </div>
+        </aside>
 
-      {message && (
-        <Alert className="mb-6" severity={message.type}>
-          {message.text}
-        </Alert>
-      )}
+        <main>
+          {message && (
+            <Alert className="mb-6" severity={message.type}>
+              {message.text}
+            </Alert>
+          )}
 
-      {activeTab === "registry" ? (
+      {activeTab === "dashboard" ? (
+        <div className="grid gap-6">
+          <div className="grid gap-4 md:grid-cols-4">
+            {[
+              ["Projects", projects.length],
+              ["Credits", credits.length],
+              ["Evidence", evidenceRecords.length],
+              ["Open Actions", verificationCase?.outstanding_actions.length ?? 0]
+            ].map(([label, value]) => (
+              <Paper key={label.toString()} elevation={0} className="workspace-panel border p-5">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
+                <strong className="mt-2 block text-3xl text-zai-blue">{value}</strong>
+              </Paper>
+            ))}
+          </div>
+          <Paper elevation={0} className="workspace-panel border p-6">
+            <Typography variant="h5" fontWeight={900}>
+              Verification operations overview
+            </Typography>
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              <div>
+                <Typography variant="h6" fontWeight={800}>Outstanding actions</Typography>
+                <Stack spacing={1.5} className="mt-3">
+                  {(verificationCase?.outstanding_actions.length ? verificationCase.outstanding_actions : ["Select a project and start verification."]).map((action) => (
+                    <div key={action} className="rounded-lg border p-4 text-sm text-slate-700">{action}</div>
+                  ))}
+                </Stack>
+              </div>
+              <div>
+                <Typography variant="h6" fontWeight={800}>Latest audit</Typography>
+                <Stack spacing={1.5} className="mt-3">
+                  {auditEvents.slice(0, 5).map((event) => (
+                    <div key={event.id} className="rounded-lg border p-4">
+                      <strong className="block text-zai-ink">{event.event_type}</strong>
+                      <span className="text-sm text-slate-600">{event.action} - {event.outcome}</span>
+                    </div>
+                  ))}
+                </Stack>
+              </div>
+            </div>
+          </Paper>
+        </div>
+      ) : activeTab === "verification" ? (
+        <Paper elevation={0} className="workspace-panel border p-8">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div>
+              <Typography variant="h5" fontWeight={900}>Verification case workflow</Typography>
+              <p className="mt-3 max-w-3xl text-slate-600">
+                Start a verification case, upload a complete evidence package, run automatic and AI validation, complete GIS/MRV/verifier/ZiCMA review, then issue credits.
+              </p>
+            </div>
+            <Button variant="contained" startIcon={<AssignmentTurnedInIcon />} disabled={isLoading || !selectedProject} onClick={() => runVerificationStep("start")}>
+              Start Verification
+            </Button>
+          </div>
+
+          {selectedProject ? (
+            <Stack spacing={4} className="mt-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg bg-sky-50 p-4">
+                  <strong className="block text-zai-ink">{verificationCase?.verification_id ?? "No case"}</strong>
+                  <span className="text-sm text-slate-500">Verification ID</span>
+                </div>
+                <div className="rounded-lg bg-sky-50 p-4">
+                  <strong className="block text-zai-ink">{verificationCase?.status ?? "not started"}</strong>
+                  <span className="text-sm text-slate-500">Case status</span>
+                </div>
+                <div className="rounded-lg bg-sky-50 p-4">
+                  <strong className="block text-zai-ink">{verificationCase?.assigned_verifier ?? "Not Assigned"}</strong>
+                  <span className="text-sm text-slate-500">Assigned verifier</span>
+                </div>
+              </div>
+
+              <Stepper activeStep={verificationCase ? Math.max(0, VERIFICATION_SEQUENCE.indexOf(verificationCase.status)) : 0} alternativeLabel>
+                {["Evidence", "Auto", "AI", "GIS", "MRV", "Verifier", "ZiCMA", "Approved"].map((label) => (
+                  <Step key={label}><StepLabel>{label}</StepLabel></Step>
+                ))}
+              </Stepper>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                {[
+                  ["Automatic", verificationCase?.automatic_validation_status ?? "not_started"],
+                  ["AI", verificationCase?.ai_status ?? "not_started"],
+                  ["GIS", verificationCase?.gis_status ?? "not_started"],
+                  ["MRV", verificationCase?.mrv_status ?? "not_started"],
+                  ["Verifier", verificationCase?.verifier_status ?? "not_started"],
+                  ["ZiCMA", verificationCase?.zicma_status ?? "not_started"],
+                  ["Integrity", verificationCase?.integrity_score ?? "-"],
+                  ["Risk", verificationCase?.risk_score ?? "-"]
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border bg-white p-4">
+                    <strong className="block text-zai-ink">{value}</strong>
+                    <span className="text-sm text-slate-500">{label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <Button variant="outlined" startIcon={<UploadFileIcon />} disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("evidence")}>Upload Evidence</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("automatic")}>Automatic Validation</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("ai")}>AI Assessment</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("gis")}>Approve GIS</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("mrv")}>Pass MRV</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("verifier")}>Verifier Approve</Button>
+                <Button variant="contained" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("zicma")}>ZiCMA Approve</Button>
+                <Button variant="contained" color="success" startIcon={<FactCheckIcon />} onClick={issueCredits} disabled={isLoading || verificationCase?.zicma_status !== "approve"}>
+                  Issue Credits
+                </Button>
+              </div>
+
+              {verificationAssessment && (
+                <Alert severity={verificationAssessment.status === "pass" ? "success" : "warning"}>
+                  {verificationAssessment.stage}: {verificationAssessment.status} - {verificationAssessment.findings.join(" ")}
+                </Alert>
+              )}
+            </Stack>
+          ) : (
+            <Alert className="mt-6" severity="info">Select or register a project before starting verification.</Alert>
+          )}
+        </Paper>
+      ) : activeTab === "registry" ? (
         <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
           <Paper elevation={0} className="border p-6">
             <Box component="form" onSubmit={submitProject}>
@@ -909,6 +1142,8 @@ export default function RegistryConsole() {
           )}
         </Paper>
       )}
+        </main>
+      </div>
     </section>
   );
 }

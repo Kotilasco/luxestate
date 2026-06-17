@@ -155,6 +155,95 @@ class ValidationDecisionResponse(BaseModel):
     generated_at: datetime
 
 
+class StartVerificationRequest(BaseModel):
+    monitoring_period_start: date
+    monitoring_period_end: date
+    assigned_verifier: str = Field(default="Not Assigned", min_length=3, max_length=160)
+
+
+class VerificationFileRequest(BaseModel):
+    file_name: str = Field(min_length=3, max_length=255)
+    category: Literal[
+        "boundary",
+        "monitoring_report",
+        "carbon_calculation",
+        "biomass_inventory",
+        "satellite_imagery",
+        "field_photo",
+        "inspection_form",
+        "drone_imagery",
+        "verifier_statement",
+        "accreditation_certificate",
+        "digital_signature",
+    ]
+    mime_type: str = Field(min_length=3, max_length=120)
+    file_size_bytes: int = Field(gt=0)
+    capture_date: date | None = None
+    digital_signature: str = Field(min_length=8, max_length=255)
+
+
+class EvidencePackageRequest(BaseModel):
+    files: list[VerificationFileRequest] = Field(min_length=1)
+    package_notes: str = Field(min_length=10, max_length=1000)
+
+
+class VerificationDecisionRequest(BaseModel):
+    decision: Literal["pass", "warning", "fail", "approve", "reject", "request_more_information", "return_for_revision"]
+    comments: str = Field(min_length=5, max_length=1000)
+    digital_signature: str = Field(min_length=8, max_length=255)
+
+
+class VerificationCaseResponse(BaseModel):
+    verification_id: str
+    project_id: UUID
+    status: str
+    assigned_verifier: str
+    monitoring_period_start: date
+    monitoring_period_end: date
+    evidence_complete: bool
+    automatic_validation_status: str
+    ai_status: str
+    gis_status: str
+    mrv_status: str
+    verifier_status: str
+    zicma_status: str
+    integrity_score: Decimal | None = None
+    risk_score: Decimal | None = None
+    confidence_score: Decimal | None = None
+    outstanding_actions: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class EvidencePackageResponse(BaseModel):
+    verification_id: str
+    status: str
+    files: list[dict[str, object]]
+    evidence_complete: bool
+    created_at: datetime
+
+
+class VerificationAssessmentResponse(BaseModel):
+    verification_id: str
+    stage: str
+    status: str
+    integrity_score: Decimal | None = None
+    risk_score: Decimal | None = None
+    confidence_score: Decimal | None = None
+    findings: list[str]
+    required_actions: list[str]
+    generated_at: datetime
+
+
+class VerificationDecisionResponse(BaseModel):
+    verification_id: str
+    stage: str
+    status: str
+    comments: str
+    digital_signature: str
+    generated_at: datetime
+
+
 class ErrorResponse(BaseModel):
     code: str
     message: str
