@@ -1,6 +1,9 @@
 /.env
 /vendor
 /node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
 /storage/logs/*.log
 /storage/framework/cache/*
 !/storage/framework/cache/.gitkeep
@@ -14,3 +17,4 @@
 /screenshots
 /.edge-capture-*
 LuxEstate.zip
+docx_extracted.txt

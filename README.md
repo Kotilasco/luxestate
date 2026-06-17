@@ -1,20 +1,72 @@
-# LuxEstate
+# Zimbabwe AI-Enhanced Carbon Trading Ecosystem
 
-Laravel and Bootstrap real estate landing page based on the LuxEstate demo layout.
+ZAI-CTS is a production-grade national carbon trading platform foundation built from `MASTER_SPECIFICATION.md`.
 
-## Requirements
+The repository now contains:
 
-- Docker, or PHP 8.2+ with Composer
-- Internet access for Bootstrap, Bootstrap Icons, Google Fonts, and demo image assets loaded from CDN/remote URLs
+- Enterprise architecture documentation
+- PostgreSQL/PostGIS database schema baseline
+- FastAPI Carbon Registry service
+- Node.js API Gateway
+- Next.js TypeScript Web Portal
+- Docker Compose baseline
+- Kubernetes manifests
+- GitHub Actions CI
+- Existing Laravel/Bootstrap visual template retained as a reference/landing implementation
 
-## Start With Docker
-
-From the project root:
+## Start the Enterprise Stack
 
 ```bash
-docker run --rm -v ${PWD}:/app -w /app composer:2 composer install
-copy .env.example .env
-docker run --rm -v ${PWD}:/app -w /app composer:2 php artisan key:generate
+docker compose -f infrastructure/docker/docker-compose.yml up --build
+```
+
+Open:
+
+```text
+Web Portal:       http://localhost:3000
+API Gateway:      http://localhost:8080/health
+Carbon Registry:  http://localhost:8101/health
+RabbitMQ Console: http://localhost:15672
+```
+
+## Carbon Registry Service
+
+```bash
+cd backend/services/carbon-registry-service
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pytest
+uvicorn app.main:app --reload --port 8101
+```
+
+OpenAPI:
+
+```text
+http://localhost:8101/docs
+```
+
+## API Gateway
+
+```bash
+cd api-gateway
+npm install
+npm run dev
+```
+
+## Web Portal
+
+```bash
+cd frontend/web-portal
+npm install
+npm run dev
+```
+
+## Legacy Laravel Template
+
+The previous LuxEstate-based Laravel template remains available for visual reference:
+
+```bash
 docker run -d --name luxestate-app -p 8001:8000 -v ${PWD}:/app -w /app composer:2 php artisan serve --host=0.0.0.0 --port=8000
 ```
 
@@ -24,36 +76,12 @@ Open:
 http://127.0.0.1:8001
 ```
 
-Stop the server:
+## Key Paths
 
-```bash
-docker stop luxestate-app
-```
-
-If the container name already exists:
-
-```bash
-docker rm luxestate-app
-```
-
-## Start With Local PHP
-
-```bash
-composer install
-copy .env.example .env
-php artisan key:generate
-php artisan serve
-```
-
-Open:
-
-```text
-http://127.0.0.1:8000
-```
-
-## Main Files
-
-- `resources/views/home.blade.php` - homepage markup
-- `public/css/luxestate.css` - Bootstrap custom styling, hover effects, and responsive layout
-- `public/js/luxestate.js` - navigation behavior and animated counters
-- `routes/web.php` - Laravel route for `/`
+- `MASTER_SPECIFICATION.md` - constitutional specification
+- `docs/architecture` - C4, DDD, bounded contexts
+- `database` - PostgreSQL/PostGIS schema and migrations
+- `backend/services/carbon-registry-service` - FastAPI service
+- `api-gateway` - Node.js gateway
+- `frontend/web-portal` - Next.js portal
+- `infrastructure` - Docker, Kubernetes, operations
