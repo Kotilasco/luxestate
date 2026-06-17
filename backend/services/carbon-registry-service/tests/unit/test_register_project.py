@@ -9,7 +9,7 @@ from app.application.commands.register_project import (
 )
 from app.application.dto import RegisterCarbonProjectRequest
 from app.application.ports import AuditWriter, CarbonProjectRepository
-from app.domain.entities.carbon_project import CarbonProject
+from app.domain.entities.carbon_project import CarbonProject, ProjectStatus
 
 
 class InMemoryProjectRepository(CarbonProjectRepository):
@@ -28,6 +28,31 @@ class InMemoryProjectRepository(CarbonProjectRepository):
 
     async def list(self, limit: int, offset: int) -> list[CarbonProject]:
         return list(self.projects.values())[offset : offset + limit]
+
+    async def update_status(self, project_id: UUID, status: ProjectStatus, actor_id: UUID | None) -> CarbonProject | None:
+        project = self.projects.get(project_id)
+        if project is None:
+            return None
+        updated = CarbonProject(
+            id=project.id,
+            project_code=project.project_code,
+            title=project.title,
+            description=project.description,
+            methodology=project.methodology,
+            proponent_organization_id=project.proponent_organization_id,
+            district=project.district,
+            province=project.province,
+            status=status,
+            estimated_annual_tco2e=project.estimated_annual_tco2e,
+            start_date=project.start_date,
+            crediting_period_years=project.crediting_period_years,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            created_by=project.created_by,
+            updated_by=actor_id,
+        )
+        self.projects[project_id] = updated
+        return updated
 
 
 class CapturingAuditWriter(AuditWriter):

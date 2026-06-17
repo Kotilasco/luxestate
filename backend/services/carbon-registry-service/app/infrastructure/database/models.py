@@ -35,6 +35,25 @@ class CarbonProjectModel(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class CarbonCreditBatchModel(Base):
+    __tablename__ = "carbon_credit_batches"
+    __table_args__ = {"schema": "registry"}
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    project_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    vintage_year: Mapped[int] = mapped_column(nullable=False)
+    quantity_tco2e: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    serial_prefix: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(60), nullable=False)
+    blockchain_tx_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AuditEventModel(Base):
     __tablename__ = "audit_events"
     __table_args__ = {"schema": "audit"}

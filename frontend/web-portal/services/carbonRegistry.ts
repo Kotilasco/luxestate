@@ -15,6 +15,33 @@ export type CarbonProject = {
   updated_at: string;
 };
 
+export type CreditBatch = {
+  id: string;
+  project_id: string;
+  vintage_year: number;
+  quantity_tco2e: string;
+  serial_prefix: string;
+  status: string;
+  blockchain_tx_id: string | null;
+  issued_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AuditEvent = {
+  id: string;
+  event_type: string;
+  actor_id: string | null;
+  actor_role: string | null;
+  resource_type: string;
+  resource_id: string | null;
+  action: string;
+  outcome: string;
+  correlation_id: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
 export type RegisterCarbonProjectPayload = {
   project_code: string;
   title: string;
@@ -27,6 +54,8 @@ export type RegisterCarbonProjectPayload = {
   start_date: string;
   crediting_period_years: number;
 };
+
+export type WorkflowAction = "submit_for_verification" | "start_verification" | "approve" | "reject" | "suspend";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8082";
 
@@ -49,12 +78,7 @@ export async function listCarbonProjects(): Promise<CarbonProject[]> {
 export async function registerCarbonProject(payload: RegisterCarbonProjectPayload): Promise<CarbonProject> {
   const response = await fetch(`${apiBaseUrl}/api/v1/projects`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-actor-id": crypto.randomUUID(),
-      "x-actor-role": "regulator.approver",
-      "x-correlation-id": crypto.randomUUID()
-    },
+    headers: actorHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -64,4 +88,66 @@ export async function registerCarbonProject(payload: RegisterCarbonProjectPayloa
   }
 
   return response.json();
+}
+
+export async function advanceProjectWorkflow(
+  projectId: string,
+  action: WorkflowAction,
+  reason: string
+): Promise<CarbonProject> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/workflow`, {
+    method: "PATCH",
+    headers: actorHeaders(),
+    body: JSON.stringify({ action, reason })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Workflow action failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function issueCreditBatch(
+  projectId: string,
+  payload: { vintage_year: number; quantity_tco2e: string }
+): Promise<CreditBatch> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/credits`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Credit issuance failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function listCreditBatches(projectId: string): Promise<CreditBatch[]> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/credits`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Credit batch list failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function listAuditEvents(projectId: string): Promise<AuditEvent[]> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/audit-events`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Audit event list failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+function actorHeaders() {
+  return {
+    "content-type": "application/json",
+    "x-actor-id": "11111111-1111-4111-8111-111111111111",
+    "x-actor-role": "regulator.approver",
+    "x-correlation-id": crypto.randomUUID()
+  };
 }

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -85,3 +86,21 @@ class SqlAlchemyCarbonProjectRepository(CarbonProjectRepository):
             .offset(offset)
         )
         return [_to_domain(model) for model in result.scalars().all()]
+
+    async def update_status(self, project_id: UUID, status: ProjectStatus, actor_id: UUID | None) -> CarbonProject | None:
+        result = await self._session.execute(
+            select(CarbonProjectModel).where(
+                CarbonProjectModel.id == project_id,
+                CarbonProjectModel.deleted_at.is_(None),
+            )
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+
+        model.status = status.value
+        model.updated_at = datetime.now(tz=UTC)
+        model.updated_by = actor_id
+        await self._session.commit()
+        await self._session.refresh(model)
+        return _to_domain(model)

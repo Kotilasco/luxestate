@@ -1,8 +1,15 @@
 "use client";
 
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import AddCircleIcon from "@mui/icons-material/AddCircle";
+import AnalyticsIcon from "@mui/icons-material/Analytics";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
+import GavelIcon from "@mui/icons-material/Gavel";
+import MapIcon from "@mui/icons-material/Map";
+import PaymentsIcon from "@mui/icons-material/Payments";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SendIcon from "@mui/icons-material/Send";
+import VerifiedIcon from "@mui/icons-material/Verified";
 import {
   Alert,
   Box,
@@ -13,19 +20,58 @@ import {
   MenuItem,
   Paper,
   Stack,
+  Step,
+  StepLabel,
+  Stepper,
+  Tab,
+  Tabs,
   TextField,
   Typography
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
+  advanceProjectWorkflow,
+  AuditEvent,
   CarbonProject,
+  CreditBatch,
   fetchGatewayHealth,
+  issueCreditBatch,
+  listAuditEvents,
   listCarbonProjects,
-  registerCarbonProject
+  listCreditBatches,
+  registerCarbonProject,
+  WorkflowAction
 } from "../services/carbonRegistry";
 
 const bootstrapOrganizationId = "11111111-1111-4111-8111-111111111111";
+
+const workflowSteps = [
+  "Draft",
+  "Submitted",
+  "Verification",
+  "Approved",
+  "Credits Issued"
+];
+
+const statusStep: Record<string, number> = {
+  draft: 0,
+  submitted_for_verification: 1,
+  under_verification: 2,
+  approved: 3,
+  credits_issued: 4,
+  rejected: 1,
+  suspended: 1
+};
+
+const workspaceLinks = [
+  ["registry", "Registry", <VerifiedIcon key="registry" />],
+  ["gis", "GIS", <MapIcon key="gis" />],
+  ["ai", "AI Review", <AnalyticsIcon key="ai" />],
+  ["marketplace", "Marketplace", <PaymentsIcon key="marketplace" />],
+  ["blockchain", "Ledger", <AccountTreeIcon key="ledger" />],
+  ["compliance", "Compliance", <GavelIcon key="compliance" />]
+];
 
 type FormState = {
   project_code: string;
@@ -41,7 +87,7 @@ type FormState = {
 };
 
 function createInitialForm(): FormState {
-  const randomCode = Math.floor(20260000 + Math.random() * 9999);
+  const randomCode = Math.floor(20260000 + Math.random() * 900000);
   return {
     project_code: `ZAI-${randomCode}`,
     title: "Kariba AI Verified Forest Carbon Programme",
@@ -57,26 +103,79 @@ function createInitialForm(): FormState {
   };
 }
 
+function formatStatus(status: string) {
+  return status.replaceAll("_", " ");
+}
+
+function availableActions(project: CarbonProject | null): Array<[WorkflowAction, string]> {
+  if (!project) {
+    return [];
+  }
+  if (project.status === "draft") {
+    return [["submit_for_verification", "Submit for Verification"]];
+  }
+  if (project.status === "submitted_for_verification") {
+    return [["start_verification", "Start Verification"]];
+  }
+  if (project.status === "under_verification") {
+    return [
+      ["approve", "Approve Project"],
+      ["reject", "Reject"]
+    ];
+  }
+  if (project.status === "approved" || project.status === "credits_issued") {
+    return [["suspend", "Suspend"]];
+  }
+  return [];
+}
+
 export default function RegistryConsole() {
   const [health, setHealth] = useState<string>("checking");
   const [projects, setProjects] = useState<CarbonProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [credits, setCredits] = useState<CreditBatch[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [form, setForm] = useState<FormState>(() => createInitialForm());
+  const [activeTab, setActiveTab] = useState("registry");
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
 
-  const projectCount = useMemo(() => projects.length, [projects]);
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
+    [projects, selectedProjectId]
+  );
 
-  async function refreshProjects() {
+  const activeStep = selectedProject ? statusStep[selectedProject.status] ?? 0 : 0;
+  const totalIssued = credits.reduce((sum, batch) => sum + Number(batch.quantity_tco2e), 0);
+
+  async function loadProjects(preferredProjectId?: string) {
     const [healthResponse, projectResponse] = await Promise.all([
       fetchGatewayHealth(),
       listCarbonProjects()
     ]);
     setHealth(`${healthResponse.status} (${healthResponse.service})`);
     setProjects(projectResponse);
+    const nextSelected = preferredProjectId ?? selectedProjectId ?? projectResponse[0]?.id ?? null;
+    setSelectedProjectId(nextSelected);
+    if (nextSelected) {
+      await loadProjectDetails(nextSelected);
+    } else {
+      setCredits([]);
+      setAuditEvents([]);
+    }
+  }
+
+  async function loadProjectDetails(projectId: string) {
+    const [creditResponse, auditResponse] = await Promise.all([
+      listCreditBatches(projectId),
+      listAuditEvents(projectId)
+    ]);
+    setCredits(creditResponse);
+    setAuditEvents(auditResponse);
   }
 
   useEffect(() => {
-    refreshProjects().catch((error: unknown) => {
+    loadProjects().catch((error: unknown) => {
       setHealth("unavailable");
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Unable to load registry data." });
     });
@@ -93,9 +192,9 @@ export default function RegistryConsole() {
 
     try {
       const created = await registerCarbonProject(form);
-      setProjects((current) => [created, ...current.filter((project) => project.id !== created.id)]);
       setForm(createInitialForm());
-      setMessage({ type: "success", text: `Registered project ${created.project_code} as ${created.status}.` });
+      await loadProjects(created.id);
+      setMessage({ type: "success", text: `Registered ${created.project_code}. Select workflow actions to continue.` });
     } catch (error: unknown) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Project registration failed." });
     } finally {
@@ -103,25 +202,77 @@ export default function RegistryConsole() {
     }
   }
 
+  async function runWorkflowAction(action: WorkflowAction) {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const updated = await advanceProjectWorkflow(
+        selectedProject.id,
+        action,
+        `Regulatory workflow action completed from the ZAI-CTS web portal.`
+      );
+      await loadProjects(updated.id);
+      setMessage({ type: "success", text: `${updated.project_code} is now ${formatStatus(updated.status)}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Workflow action failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function issueCredits() {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const batch = await issueCreditBatch(selectedProject.id, {
+        vintage_year: new Date().getFullYear(),
+        quantity_tco2e: selectedProject.estimated_annual_tco2e
+      });
+      await loadProjects(selectedProject.id);
+      setMessage({ type: "success", text: `Issued ${batch.quantity_tco2e} tCO2e with serial ${batch.serial_prefix}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Credit issuance failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function selectProject(projectId: string) {
+    setSelectedProjectId(projectId);
+    await loadProjectDetails(projectId);
+  }
+
   return (
-    <section id="registry" className="mx-auto max-w-7xl px-6 py-16">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <section id="registry" className="mx-auto max-w-7xl px-6 py-10">
+      <div className="mb-6 flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
         <div>
-          <span className="rounded-full bg-sky-100 px-4 py-2 text-sm font-bold uppercase tracking-wider text-zai-blue">
-            Live Carbon Registry
-          </span>
-          <h2 className="mt-5 text-4xl font-bold text-zai-ink">Register and review carbon projects</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-zai-blue">ZAI-CTS Operations Portal</p>
+          <h1 className="mt-2 text-4xl font-bold text-zai-ink">Carbon market workflow console</h1>
           <p className="mt-3 max-w-3xl text-slate-600">
-            This console is wired to the Dockerized API Gateway and FastAPI Carbon Registry service.
+            Register a project, review it, approve it, issue serialized credits, and inspect the audit trail from one working screen.
           </p>
         </div>
         <Stack direction="row" spacing={1} alignItems="center">
           <Chip color={health.startsWith("healthy") ? "success" : "warning"} label={`Gateway: ${health}`} />
-          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => refreshProjects()}>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadProjects()} disabled={isLoading}>
             Refresh
           </Button>
         </Stack>
       </div>
+
+      <Paper elevation={0} className="mb-6 border">
+        <Tabs value={activeTab} onChange={(_, value: string) => setActiveTab(value)} variant="scrollable" scrollButtons="auto">
+          {workspaceLinks.map(([value, label, icon]) => (
+            <Tab key={value.toString()} value={value} icon={icon} iconPosition="start" label={label} />
+          ))}
+        </Tabs>
+      </Paper>
 
       {message && (
         <Alert className="mb-6" severity={message.type}>
@@ -129,87 +280,210 @@ export default function RegistryConsole() {
         </Alert>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-        <Paper elevation={0} className="border p-6">
-          <Box component="form" onSubmit={submitProject}>
-            <Stack spacing={2}>
-              <Typography variant="h6" fontWeight={800}>
-                New project registration
-              </Typography>
-              <TextField label="Project code" value={form.project_code} onChange={(event) => updateField("project_code", event.target.value)} required fullWidth />
-              <TextField label="Title" value={form.title} onChange={(event) => updateField("title", event.target.value)} required fullWidth />
-              <TextField label="Description" value={form.description} onChange={(event) => updateField("description", event.target.value)} required fullWidth multiline minRows={3} />
-              <TextField label="Methodology" value={form.methodology} onChange={(event) => updateField("methodology", event.target.value)} required fullWidth />
-              <TextField select label="Province" value={form.province} onChange={(event) => updateField("province", event.target.value)} fullWidth>
-                <MenuItem value="Mashonaland West">Mashonaland West</MenuItem>
-                <MenuItem value="Matabeleland North">Matabeleland North</MenuItem>
-                <MenuItem value="Manicaland">Manicaland</MenuItem>
-                <MenuItem value="Masvingo">Masvingo</MenuItem>
-              </TextField>
-              <TextField label="District" value={form.district} onChange={(event) => updateField("district", event.target.value)} required fullWidth />
-              <TextField label="Estimated annual tCO2e" value={form.estimated_annual_tco2e} onChange={(event) => updateField("estimated_annual_tco2e", event.target.value)} required fullWidth />
-              <div className="grid gap-3 md:grid-cols-2">
-                <TextField type="date" label="Start date" value={form.start_date} onChange={(event) => updateField("start_date", event.target.value)} InputLabelProps={{ shrink: true }} required />
-                <TextField type="number" label="Crediting years" value={form.crediting_period_years} onChange={(event) => updateField("crediting_period_years", Number(event.target.value))} required />
-              </div>
-              <Button type="submit" variant="contained" size="large" startIcon={isLoading ? <CircularProgress size={18} /> : <SendIcon />} disabled={isLoading}>
-                Register Project
-              </Button>
-            </Stack>
-          </Box>
-        </Paper>
+      {activeTab === "registry" ? (
+        <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
+          <Paper elevation={0} className="border p-6">
+            <Box component="form" onSubmit={submitProject}>
+              <Stack spacing={2}>
+                <Typography variant="h6" fontWeight={800}>
+                  Start: project registration
+                </Typography>
+                <TextField label="Project code" value={form.project_code} onChange={(event) => updateField("project_code", event.target.value)} required fullWidth />
+                <TextField label="Title" value={form.title} onChange={(event) => updateField("title", event.target.value)} required fullWidth />
+                <TextField label="Description" value={form.description} onChange={(event) => updateField("description", event.target.value)} required fullWidth multiline minRows={3} />
+                <TextField label="Methodology" value={form.methodology} onChange={(event) => updateField("methodology", event.target.value)} required fullWidth />
+                <TextField select label="Province" value={form.province} onChange={(event) => updateField("province", event.target.value)} fullWidth>
+                  <MenuItem value="Mashonaland West">Mashonaland West</MenuItem>
+                  <MenuItem value="Matabeleland North">Matabeleland North</MenuItem>
+                  <MenuItem value="Manicaland">Manicaland</MenuItem>
+                  <MenuItem value="Masvingo">Masvingo</MenuItem>
+                </TextField>
+                <TextField label="District" value={form.district} onChange={(event) => updateField("district", event.target.value)} required fullWidth />
+                <TextField label="Estimated annual tCO2e" value={form.estimated_annual_tco2e} onChange={(event) => updateField("estimated_annual_tco2e", event.target.value)} required fullWidth />
+                <div className="grid gap-3 md:grid-cols-2">
+                  <TextField type="date" label="Start date" value={form.start_date} onChange={(event) => updateField("start_date", event.target.value)} InputLabelProps={{ shrink: true }} required />
+                  <TextField type="number" label="Crediting years" value={form.crediting_period_years} onChange={(event) => updateField("crediting_period_years", Number(event.target.value))} required />
+                </div>
+                <Button type="submit" variant="contained" size="large" startIcon={isLoading ? <CircularProgress size={18} /> : <SendIcon />} disabled={isLoading}>
+                  Register Project
+                </Button>
+              </Stack>
+            </Box>
+          </Paper>
 
-        <Paper elevation={0} className="border p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <Typography variant="h6" fontWeight={800}>
-                Registry projects
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {projectCount} project{projectCount === 1 ? "" : "s"} currently returned by the registry.
-              </Typography>
-            </div>
-            <AddCircleIcon className="text-sky-600" />
-          </div>
-          <Divider />
-          <Stack spacing={2} className="mt-5">
-            {projects.length === 0 ? (
-              <Alert severity="info">No projects registered yet. Use the form to create one.</Alert>
-            ) : (
-              projects.map((project) => (
-                <article key={project.id} className="rounded-lg border p-5 transition hover:-translate-y-1 hover:border-sky-300 hover:shadow-md">
+          <Stack spacing={3}>
+            <Paper elevation={0} className="border p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <Typography variant="h6" fontWeight={800}>
+                    Registered projects
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {projects.length} project{projects.length === 1 ? "" : "s"} available. Select one to view and continue.
+                  </Typography>
+                </div>
+                <AddCircleIcon className="text-sky-600" />
+              </div>
+              <Divider />
+              <Stack spacing={1.5} className="mt-5">
+                {projects.length === 0 ? (
+                  <Alert severity="info">No projects registered yet. Use the form to create the first project.</Alert>
+                ) : (
+                  projects.map((project) => (
+                    <button
+                      key={project.id}
+                      className={`w-full rounded-lg border p-4 text-left transition hover:border-sky-300 hover:bg-sky-50 ${selectedProject?.id === project.id ? "border-sky-500 bg-sky-50" : "bg-white"}`}
+                      type="button"
+                      onClick={() => selectProject(project.id)}
+                    >
+                      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
+                        <div>
+                          <strong className="block text-zai-ink">{project.title}</strong>
+                          <span className="text-sm text-slate-500">{project.project_code} - {project.district}, {project.province}</span>
+                        </div>
+                        <Chip size="small" label={formatStatus(project.status)} color={project.status === "credits_issued" ? "success" : "primary"} variant="outlined" />
+                      </div>
+                    </button>
+                  ))
+                )}
+              </Stack>
+            </Paper>
+
+            <Paper elevation={0} className="border p-6">
+              {selectedProject ? (
+                <Stack spacing={3}>
                   <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
                     <div>
-                      <Typography variant="h6" fontWeight={800}>
-                        {project.title}
+                      <Typography variant="h5" fontWeight={900}>
+                        {selectedProject.title}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {project.project_code} - {project.district}, {project.province}
+                        {selectedProject.project_code} - {selectedProject.district}, {selectedProject.province}
                       </Typography>
                     </div>
-                    <Chip label={project.status} color="primary" variant="outlined" />
+                    <Chip label={formatStatus(selectedProject.status)} color="primary" />
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{project.description}</p>
-                  <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
+
+                  <Stepper activeStep={activeStep} alternativeLabel>
+                    {workflowSteps.map((label) => (
+                      <Step key={label}>
+                        <StepLabel>{label}</StepLabel>
+                      </Step>
+                    ))}
+                  </Stepper>
+
+                  <p className="text-sm leading-6 text-slate-600">{selectedProject.description}</p>
+
+                  <div className="grid gap-3 text-sm md:grid-cols-4">
                     <div className="rounded-md bg-sky-50 p-3">
-                      <strong className="block text-zai-ink">{project.estimated_annual_tco2e}</strong>
+                      <strong className="block text-zai-ink">{selectedProject.estimated_annual_tco2e}</strong>
                       <span className="text-slate-500">Annual tCO2e</span>
                     </div>
                     <div className="rounded-md bg-sky-50 p-3">
-                      <strong className="block text-zai-ink">{project.crediting_period_years} years</strong>
+                      <strong className="block text-zai-ink">{selectedProject.crediting_period_years} years</strong>
                       <span className="text-slate-500">Crediting period</span>
                     </div>
                     <div className="rounded-md bg-sky-50 p-3">
-                      <strong className="block text-zai-ink">{project.methodology}</strong>
-                      <span className="text-slate-500">Methodology</span>
+                      <strong className="block text-zai-ink">{credits.length}</strong>
+                      <span className="text-slate-500">Credit batches</span>
+                    </div>
+                    <div className="rounded-md bg-sky-50 p-3">
+                      <strong className="block text-zai-ink">{totalIssued.toLocaleString()}</strong>
+                      <span className="text-slate-500">Issued tCO2e</span>
                     </div>
                   </div>
-                </article>
-              ))
-            )}
+
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    {availableActions(selectedProject).map(([action, label]) => (
+                      <Button key={action} variant="contained" onClick={() => runWorkflowAction(action)} disabled={isLoading}>
+                        {label}
+                      </Button>
+                    ))}
+                    <Button
+                      variant="outlined"
+                      startIcon={<FactCheckIcon />}
+                      onClick={issueCredits}
+                      disabled={isLoading || !["approved", "credits_issued"].includes(selectedProject.status)}
+                    >
+                      Issue Credits
+                    </Button>
+                  </Stack>
+
+                  <Divider />
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div>
+                      <Typography variant="h6" fontWeight={800}>
+                        Issued credit batches
+                      </Typography>
+                      <Stack spacing={1.5} className="mt-3">
+                        {credits.length === 0 ? (
+                          <Alert severity="info">No credits issued yet. Approve the project, then issue credits.</Alert>
+                        ) : (
+                          credits.map((batch) => (
+                            <div key={batch.id} className="rounded-lg border p-4">
+                              <strong className="block text-zai-ink">{batch.serial_prefix}</strong>
+                              <span className="text-sm text-slate-600">{batch.quantity_tco2e} tCO2e - vintage {batch.vintage_year}</span>
+                              <p className="mt-2 break-all text-xs text-slate-500">{batch.blockchain_tx_id}</p>
+                            </div>
+                          ))
+                        )}
+                      </Stack>
+                    </div>
+
+                    <div>
+                      <Typography variant="h6" fontWeight={800}>
+                        Immutable audit trail
+                      </Typography>
+                      <Stack spacing={1.5} className="mt-3">
+                        {auditEvents.length === 0 ? (
+                          <Alert severity="info">No audit events yet.</Alert>
+                        ) : (
+                          auditEvents.map((event) => (
+                            <div key={event.id} className="rounded-lg border p-4">
+                              <strong className="block text-zai-ink">{event.event_type}</strong>
+                              <span className="text-sm text-slate-600">{event.action} - {event.outcome}</span>
+                              <p className="mt-2 text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</p>
+                            </div>
+                          ))
+                        )}
+                      </Stack>
+                    </div>
+                  </div>
+                </Stack>
+              ) : (
+                <Alert severity="info">Register a project to begin the workflow.</Alert>
+              )}
+            </Paper>
           </Stack>
+        </div>
+      ) : (
+        <Paper elevation={0} className="border p-8">
+          <Typography variant="h5" fontWeight={900}>
+            {workspaceLinks.find(([value]) => value === activeTab)?.[1]} workspace
+          </Typography>
+          <p className="mt-3 max-w-3xl text-slate-600">
+            This section is linked into the workflow console. Select a registered project in the Registry tab first, then use the operational data below for the selected project.
+          </p>
+          {selectedProject ? (
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border p-5">
+                <strong className="block text-zai-ink">{selectedProject.project_code}</strong>
+                <span className="text-sm text-slate-500">Selected project</span>
+              </div>
+              <div className="rounded-lg border p-5">
+                <strong className="block text-zai-ink">{formatStatus(selectedProject.status)}</strong>
+                <span className="text-sm text-slate-500">Current status</span>
+              </div>
+              <div className="rounded-lg border p-5">
+                <strong className="block text-zai-ink">{credits.length}</strong>
+                <span className="text-sm text-slate-500">Issued credit batches</span>
+              </div>
+            </div>
+          ) : (
+            <Alert className="mt-6" severity="info">No selected project yet.</Alert>
+          )}
         </Paper>
-      </div>
+      )}
     </section>
   );
 }

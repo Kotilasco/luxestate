@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,6 +36,53 @@ class CarbonProjectResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectWorkflowRequest(BaseModel):
+    action: Literal[
+        "submit_for_verification",
+        "start_verification",
+        "approve",
+        "reject",
+        "suspend",
+    ]
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class IssueCreditBatchRequest(BaseModel):
+    vintage_year: int = Field(ge=2000, le=2100)
+    quantity_tco2e: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+
+
+class CreditBatchResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    vintage_year: int
+    quantity_tco2e: Decimal
+    serial_prefix: str
+    status: str
+    blockchain_tx_id: str | None
+    issued_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditEventResponse(BaseModel):
+    id: UUID
+    event_type: str
+    actor_id: UUID | None
+    actor_role: str | None
+    resource_type: str
+    resource_id: UUID | None
+    action: str
+    outcome: str
+    correlation_id: UUID
+    metadata: dict[str, object] = Field(alias="metadata_")
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class ErrorResponse(BaseModel):

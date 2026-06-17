@@ -38,13 +38,40 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
     return upstream.body.json();
   });
 
-  app.get("/api/v1/projects/:projectId", async (incoming, reply) => {
+  app.all("/api/v1/projects/:projectId", async (incoming, reply) => {
     const params = incoming.params as { projectId: string };
     const url = new URL(`/api/v1/projects/${params.projectId}`, config.CARBON_REGISTRY_URL);
 
     const upstream = await request(url, {
-      method: "GET",
-      headers: forwardHeaders(incoming.headers)
+      method: incoming.method,
+      headers: {
+        "content-type": "application/json",
+        ...forwardHeaders(incoming.headers)
+      },
+      body: incoming.body ? JSON.stringify(incoming.body) : undefined
+    });
+
+    reply.statusCode = upstream.statusCode;
+    reply.headers(upstream.headers);
+    return upstream.body.json();
+  });
+
+  app.all("/api/v1/projects/:projectId/*", async (incoming, reply) => {
+    const params = incoming.params as { projectId: string; "*": string };
+    const url = new URL(`/api/v1/projects/${params.projectId}/${params["*"]}`, config.CARBON_REGISTRY_URL);
+    if (incoming.query && Object.keys(incoming.query as object).length > 0) {
+      for (const [key, value] of Object.entries(incoming.query as Record<string, string>)) {
+        url.searchParams.set(key, value);
+      }
+    }
+
+    const upstream = await request(url, {
+      method: incoming.method,
+      headers: {
+        "content-type": "application/json",
+        ...forwardHeaders(incoming.headers)
+      },
+      body: incoming.body ? JSON.stringify(incoming.body) : undefined
     });
 
     reply.statusCode = upstream.statusCode;
