@@ -239,11 +239,12 @@ async def run_gis_assessment(
 
     profile = DISTRICT_GIS_PROFILES.get(project.district.lower(), DEFAULT_GIS_PROFILE)
     estimated_area = (project.estimated_annual_tco2e / profile["carbon_density"]).quantize(Decimal("0.0001"))
-    boundary_status = "validated" if estimated_area <= Decimal("250000.0000") else "requires_manual_review"
+    boundary_status = "requires_boundary_submission"
     findings = [
-        f"Project located in {project.district}, {project.province} with centroid validated against national district profile.",
+        f"Project located in {project.district}, {project.province}; district profile is suitable for screening only.",
         f"Estimated project area is {estimated_area} hectares using declared annual tCO2e and district carbon density.",
         f"Forest cover profile is {profile['forest_cover']} percent and fire risk is {profile['fire_risk']}.",
+        "Production GIS verification requires the project boundary polygon, authoritative Zimbabwe administrative boundaries, satellite land-cover analysis, active fire screening, and field MRV evidence.",
     ]
     if profile["fire_risk"] == "high":
         findings.append("High fire risk requires annual satellite fire alert monitoring before credit issuance.")
@@ -260,13 +261,21 @@ async def run_gis_assessment(
         fire_risk_level=profile["fire_risk"],
         boundary_validation_status=boundary_status,
         layers=[
-            GisLayerResponse(name="District boundary", status="matched", summary=f"{project.district} administrative boundary selected."),
-            GisLayerResponse(name="Forest cover", status="analysed", summary=f"{profile['forest_cover']} percent forest cover baseline."),
-            GisLayerResponse(name="Fire alerts", status="analysed", summary=f"{profile['fire_risk']} fire risk classification."),
-            GisLayerResponse(name="Carbon density", status="analysed", summary=f"{profile['carbon_density']} tCO2e per hectare profile."),
+            GisLayerResponse(name="District boundary", status="screened", summary=f"{project.district} administrative boundary profile selected."),
+            GisLayerResponse(name="Forest cover", status="screened", summary=f"{profile['forest_cover']} percent forest cover baseline for readiness review."),
+            GisLayerResponse(name="Fire alerts", status="screened", summary=f"{profile['fire_risk']} fire risk classification for readiness review."),
+            GisLayerResponse(name="Carbon density", status="screened", summary=f"{profile['carbon_density']} tCO2e per hectare profile for readiness review."),
+        ],
+        evidence_sources=[
+            "Zimbabwe authoritative administrative boundary dataset for province/district intersection",
+            "Submitted project boundary polygon in GeoJSON/Shapefile projected to WGS84",
+            "Copernicus Sentinel-2 imagery for vegetation and land-use verification",
+            "ESA WorldCover 10m land-cover product for forest/non-forest baseline",
+            "NASA FIRMS MODIS/VIIRS active fire observations for fire-risk screening",
+            "Field MRV plots, geotagged photos, and verifier sign-off records",
         ],
         findings=findings,
-        recommendation="GIS assessment passed for workflow use." if boundary_status == "validated" else "Boundary requires regulator review before approval.",
+        recommendation="Submit the project boundary polygon and MRV evidence before this project can be GIS-verified for approval.",
         generated_at=datetime.now(tz=UTC),
     )
     await audit_writer.write(
@@ -335,7 +344,11 @@ async def run_ai_review(
         risk_level=risk_level,
         findings=findings,
         required_actions=required_actions,
-        recommendation="AI review passed with standard verifier controls." if risk_level == "low" else "AI review requires targeted human verification controls.",
+        recommendation=(
+            "AI review passed with standard verifier controls."
+            if risk_level == "low"
+            else "AI review requires targeted human verification controls because one or more policy risk thresholds were triggered."
+        ),
         generated_at=datetime.now(tz=UTC),
     )
     await audit_writer.write(

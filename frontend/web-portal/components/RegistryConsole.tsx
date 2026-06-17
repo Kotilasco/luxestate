@@ -590,7 +590,19 @@ export default function RegistryConsole() {
                   </div>
                   <div>
                     <Typography variant="h6" fontWeight={800}>
-                      Findings
+                      Evidence required
+                    </Typography>
+                    <Stack spacing={1.5} className="mt-3">
+                      {gisAssessment.evidence_sources.map((source) => (
+                        <div key={source} className="rounded-lg border p-4 text-sm text-slate-700">
+                          {source}
+                        </div>
+                      ))}
+                    </Stack>
+                  </div>
+                  <div className="lg:col-span-2">
+                    <Typography variant="h6" fontWeight={800}>
+                      GIS findings
                     </Typography>
                     <Stack spacing={1.5} className="mt-3">
                       {gisAssessment.findings.map((finding) => (

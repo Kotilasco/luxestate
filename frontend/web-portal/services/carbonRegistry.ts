@@ -60,6 +60,7 @@ export type GisAssessment = {
   fire_risk_level: string;
   boundary_validation_status: string;
   layers: GisLayer[];
+  evidence_sources: string[];
   findings: string[];
   recommendation: string;
   generated_at: string;

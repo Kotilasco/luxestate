@@ -206,8 +206,9 @@ async def test_projects_api_register_and_list() -> None:
             headers={"X-Actor-Role": "gis.analyst"},
         )
         assert gis_response.status_code == 200
-        assert gis_response.json()["boundary_validation_status"] == "validated"
+        assert gis_response.json()["boundary_validation_status"] == "requires_boundary_submission"
         assert len(gis_response.json()["layers"]) == 4
+        assert len(gis_response.json()["evidence_sources"]) >= 4
 
         ai_response = await client.post(
             f"/api/v1/projects/{project_id}/ai-review",

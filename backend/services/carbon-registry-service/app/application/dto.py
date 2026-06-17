@@ -103,6 +103,7 @@ class GisAssessmentResponse(BaseModel):
     fire_risk_level: str
     boundary_validation_status: str
     layers: list[GisLayerResponse]
+    evidence_sources: list[str]
     findings: list[str]
     recommendation: str
     generated_at: datetime
