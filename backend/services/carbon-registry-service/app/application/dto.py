@@ -85,6 +85,42 @@ class AuditEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class GisLayerResponse(BaseModel):
+    name: str
+    status: str
+    summary: str
+
+
+class GisAssessmentResponse(BaseModel):
+    project_id: UUID
+    district: str
+    province: str
+    centroid_latitude: Decimal
+    centroid_longitude: Decimal
+    estimated_area_hectares: Decimal
+    forest_cover_percent: Decimal
+    carbon_density_tco2e_per_hectare: Decimal
+    fire_risk_level: str
+    boundary_validation_status: str
+    layers: list[GisLayerResponse]
+    findings: list[str]
+    recommendation: str
+    generated_at: datetime
+
+
+class AiReviewResponse(BaseModel):
+    project_id: UUID
+    review_type: str
+    model_version: str
+    prompt_version: str
+    confidence_score: Decimal
+    risk_level: str
+    findings: list[str]
+    required_actions: list[str]
+    recommendation: str
+    generated_at: datetime
+
+
 class ErrorResponse(BaseModel):
     code: str
     message: str

@@ -200,3 +200,19 @@ async def test_projects_api_register_and_list() -> None:
         audit_response = await client.get(f"/api/v1/projects/{project_id}/audit-events")
         assert audit_response.status_code == 200
         assert len(audit_response.json()) >= 1
+
+        gis_response = await client.post(
+            f"/api/v1/projects/{project_id}/gis-assessment",
+            headers={"X-Actor-Role": "gis.analyst"},
+        )
+        assert gis_response.status_code == 200
+        assert gis_response.json()["boundary_validation_status"] == "validated"
+        assert len(gis_response.json()["layers"]) == 4
+
+        ai_response = await client.post(
+            f"/api/v1/projects/{project_id}/ai-review",
+            headers={"X-Actor-Role": "ai.reviewer"},
+        )
+        assert ai_response.status_code == 200
+        assert ai_response.json()["review_type"] == "pdd_compliance_and_risk_review"
+        assert Decimal(ai_response.json()["confidence_score"]) > Decimal("0.80")

@@ -32,15 +32,19 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   advanceProjectWorkflow,
+  AiReview,
   AuditEvent,
   CarbonProject,
   CreditBatch,
   fetchGatewayHealth,
+  GisAssessment,
   issueCreditBatch,
   listAuditEvents,
   listCarbonProjects,
   listCreditBatches,
   registerCarbonProject,
+  runAiReview,
+  runGisAssessment,
   WorkflowAction
 } from "../services/carbonRegistry";
 
@@ -135,6 +139,8 @@ export default function RegistryConsole() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [credits, setCredits] = useState<CreditBatch[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [gisAssessment, setGisAssessment] = useState<GisAssessment | null>(null);
+  const [aiReview, setAiReview] = useState<AiReview | null>(null);
   const [form, setForm] = useState<FormState>(() => createInitialForm());
   const [activeTab, setActiveTab] = useState("registry");
   const [isLoading, setIsLoading] = useState(false);
@@ -162,6 +168,8 @@ export default function RegistryConsole() {
     } else {
       setCredits([]);
       setAuditEvents([]);
+      setGisAssessment(null);
+      setAiReview(null);
     }
   }
 
@@ -172,6 +180,8 @@ export default function RegistryConsole() {
     ]);
     setCredits(creditResponse);
     setAuditEvents(auditResponse);
+    setGisAssessment((current) => (current?.project_id === projectId ? current : null));
+    setAiReview((current) => (current?.project_id === projectId ? current : null));
   }
 
   useEffect(() => {
@@ -238,6 +248,42 @@ export default function RegistryConsole() {
       setMessage({ type: "success", text: `Issued ${batch.quantity_tco2e} tCO2e with serial ${batch.serial_prefix}.` });
     } catch (error: unknown) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Credit issuance failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function runSelectedGisAssessment() {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const assessment = await runGisAssessment(selectedProject.id);
+      setGisAssessment(assessment);
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: `GIS assessment completed: ${assessment.boundary_validation_status}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "GIS assessment failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function runSelectedAiReview() {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const review = await runAiReview(selectedProject.id);
+      setAiReview(review);
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: `AI review completed: ${review.risk_level} risk at ${review.confidence_score} confidence.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "AI review failed." });
     } finally {
       setIsLoading(false);
     }
@@ -456,6 +502,199 @@ export default function RegistryConsole() {
             </Paper>
           </Stack>
         </div>
+      ) : activeTab === "gis" ? (
+        <Paper elevation={0} className="border p-8">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div>
+              <Typography variant="h5" fontWeight={900}>
+                GIS project intelligence
+              </Typography>
+              <p className="mt-3 max-w-3xl text-slate-600">
+                Run district, forest cover, fire risk, carbon density, and boundary validation for the selected project.
+              </p>
+            </div>
+            <Button variant="contained" startIcon={<MapIcon />} onClick={runSelectedGisAssessment} disabled={isLoading || !selectedProject}>
+              Run GIS Assessment
+            </Button>
+          </div>
+
+          {selectedProject ? (
+            <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_420px]">
+              <div className="min-h-[360px] rounded-lg border bg-[linear-gradient(rgba(14,165,233,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(14,165,233,.18)_1px,transparent_1px)] bg-[size:36px_36px] p-6">
+                <div className="flex h-full min-h-[320px] items-center justify-center rounded-md border border-sky-200 bg-white/75">
+                  <div className="text-center">
+                    <MapIcon className="mx-auto text-sky-600" fontSize="large" />
+                    <Typography variant="h6" fontWeight={900} className="mt-3">
+                      {selectedProject.district}, {selectedProject.province}
+                    </Typography>
+                    <p className="mt-2 text-sm text-slate-600">
+                      {gisAssessment
+                        ? `${gisAssessment.centroid_latitude}, ${gisAssessment.centroid_longitude}`
+                        : "Run GIS assessment to calculate centroid, area, and layer risk."}
+                    </p>
+                    {gisAssessment && (
+                      <Chip className="mt-4" color={gisAssessment.boundary_validation_status === "validated" ? "success" : "warning"} label={gisAssessment.boundary_validation_status} />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Stack spacing={2}>
+                <div className="rounded-lg border p-5">
+                  <strong className="block text-zai-ink">{selectedProject.project_code}</strong>
+                  <span className="text-sm text-slate-500">Selected registry project</span>
+                </div>
+                {gisAssessment ? (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+                      <div className="rounded-lg bg-sky-50 p-4">
+                        <strong className="block text-zai-ink">{gisAssessment.estimated_area_hectares}</strong>
+                        <span className="text-sm text-slate-500">Estimated hectares</span>
+                      </div>
+                      <div className="rounded-lg bg-sky-50 p-4">
+                        <strong className="block text-zai-ink">{gisAssessment.forest_cover_percent}%</strong>
+                        <span className="text-sm text-slate-500">Forest cover profile</span>
+                      </div>
+                      <div className="rounded-lg bg-sky-50 p-4">
+                        <strong className="block text-zai-ink">{gisAssessment.fire_risk_level}</strong>
+                        <span className="text-sm text-slate-500">Fire risk</span>
+                      </div>
+                      <div className="rounded-lg bg-sky-50 p-4">
+                        <strong className="block text-zai-ink">{gisAssessment.carbon_density_tco2e_per_hectare}</strong>
+                        <span className="text-sm text-slate-500">tCO2e per hectare</span>
+                      </div>
+                    </div>
+                    <Alert severity={gisAssessment.boundary_validation_status === "validated" ? "success" : "warning"}>
+                      {gisAssessment.recommendation}
+                    </Alert>
+                  </>
+                ) : (
+                  <Alert severity="info">No GIS assessment has been run for this selected project yet.</Alert>
+                )}
+              </Stack>
+
+              {gisAssessment && (
+                <div className="xl:col-span-2 grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <Typography variant="h6" fontWeight={800}>
+                      GIS layers
+                    </Typography>
+                    <Stack spacing={1.5} className="mt-3">
+                      {gisAssessment.layers.map((layer) => (
+                        <div key={layer.name} className="rounded-lg border p-4">
+                          <strong className="block text-zai-ink">{layer.name}</strong>
+                          <span className="text-sm text-slate-600">{layer.status} - {layer.summary}</span>
+                        </div>
+                      ))}
+                    </Stack>
+                  </div>
+                  <div>
+                    <Typography variant="h6" fontWeight={800}>
+                      Findings
+                    </Typography>
+                    <Stack spacing={1.5} className="mt-3">
+                      {gisAssessment.findings.map((finding) => (
+                        <div key={finding} className="rounded-lg border p-4 text-sm text-slate-700">
+                          {finding}
+                        </div>
+                      ))}
+                    </Stack>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Alert className="mt-6" severity="info">Select or register a project before running GIS assessment.</Alert>
+          )}
+        </Paper>
+      ) : activeTab === "ai" ? (
+        <Paper elevation={0} className="border p-8">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div>
+              <Typography variant="h5" fontWeight={900}>
+                AI PDD and risk review
+              </Typography>
+              <p className="mt-3 max-w-3xl text-slate-600">
+                Run explainable project screening for methodology fit, crediting period, estimated tCO2e risk, and verifier actions.
+              </p>
+            </div>
+            <Button variant="contained" startIcon={<AnalyticsIcon />} onClick={runSelectedAiReview} disabled={isLoading || !selectedProject}>
+              Run AI Review
+            </Button>
+          </div>
+
+          {selectedProject ? (
+            <div className="mt-6 grid gap-6 lg:grid-cols-[360px_1fr]">
+              <Stack spacing={2}>
+                <div className="rounded-lg border p-5">
+                  <strong className="block text-zai-ink">{selectedProject.project_code}</strong>
+                  <span className="text-sm text-slate-500">Selected project</span>
+                </div>
+                <div className="rounded-lg border p-5">
+                  <strong className="block text-zai-ink">{selectedProject.methodology}</strong>
+                  <span className="text-sm text-slate-500">Declared methodology</span>
+                </div>
+                <div className="rounded-lg border p-5">
+                  <strong className="block text-zai-ink">{selectedProject.estimated_annual_tco2e}</strong>
+                  <span className="text-sm text-slate-500">Annual tCO2e under review</span>
+                </div>
+              </Stack>
+
+              {aiReview ? (
+                <Stack spacing={3}>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-lg bg-sky-50 p-4">
+                      <strong className="block text-zai-ink">{aiReview.risk_level}</strong>
+                      <span className="text-sm text-slate-500">Risk level</span>
+                    </div>
+                    <div className="rounded-lg bg-sky-50 p-4">
+                      <strong className="block text-zai-ink">{aiReview.confidence_score}</strong>
+                      <span className="text-sm text-slate-500">Confidence score</span>
+                    </div>
+                    <div className="rounded-lg bg-sky-50 p-4">
+                      <strong className="block text-zai-ink">{aiReview.prompt_version}</strong>
+                      <span className="text-sm text-slate-500">Prompt version</span>
+                    </div>
+                  </div>
+                  <Alert severity={aiReview.risk_level === "low" ? "success" : "warning"}>{aiReview.recommendation}</Alert>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div>
+                      <Typography variant="h6" fontWeight={800}>
+                        Explainable findings
+                      </Typography>
+                      <Stack spacing={1.5} className="mt-3">
+                        {aiReview.findings.map((finding) => (
+                          <div key={finding} className="rounded-lg border p-4 text-sm text-slate-700">
+                            {finding}
+                          </div>
+                        ))}
+                      </Stack>
+                    </div>
+                    <div>
+                      <Typography variant="h6" fontWeight={800}>
+                        Required actions
+                      </Typography>
+                      <Stack spacing={1.5} className="mt-3">
+                        {aiReview.required_actions.map((action) => (
+                          <div key={action} className="rounded-lg border p-4 text-sm text-slate-700">
+                            {action}
+                          </div>
+                        ))}
+                      </Stack>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Model: {aiReview.model_version} - Generated {new Date(aiReview.generated_at).toLocaleString()}
+                  </p>
+                </Stack>
+              ) : (
+                <Alert severity="info">No AI review has been run for this selected project yet.</Alert>
+              )}
+            </div>
+          ) : (
+            <Alert className="mt-6" severity="info">Select or register a project before running AI review.</Alert>
+          )}
+        </Paper>
       ) : (
         <Paper elevation={0} className="border p-8">
           <Typography variant="h5" fontWeight={900}>

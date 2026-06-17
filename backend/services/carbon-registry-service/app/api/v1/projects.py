@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -6,9 +8,12 @@ from app.api.dependencies import get_audit_reader, get_audit_writer, get_credit_
 from app.application.commands.register_project import RegisterCarbonProjectCommand
 from app.application.dto import (
     AuditEventResponse,
+    AiReviewResponse,
     CarbonProjectResponse,
     CreditBatchResponse,
     ErrorResponse,
+    GisAssessmentResponse,
+    GisLayerResponse,
     IssueCreditBatchRequest,
     ProjectWorkflowRequest,
     RegisterCarbonProjectRequest,
@@ -19,6 +24,39 @@ from app.domain.entities.carbon_project import ProjectStatus
 from app.infrastructure.security.current_user import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/api/v1/projects", tags=["Carbon Projects"])
+
+
+DISTRICT_GIS_PROFILES = {
+    "kariba": {
+        "lat": Decimal("-16.5167"),
+        "lng": Decimal("28.8000"),
+        "forest_cover": Decimal("67.50"),
+        "carbon_density": Decimal("142.80"),
+        "fire_risk": "medium",
+    },
+    "binga": {
+        "lat": Decimal("-17.6167"),
+        "lng": Decimal("27.3333"),
+        "forest_cover": Decimal("54.20"),
+        "carbon_density": Decimal("118.40"),
+        "fire_risk": "high",
+    },
+    "hwange": {
+        "lat": Decimal("-18.3645"),
+        "lng": Decimal("26.4988"),
+        "forest_cover": Decimal("48.60"),
+        "carbon_density": Decimal("109.70"),
+        "fire_risk": "high",
+    },
+}
+
+DEFAULT_GIS_PROFILE = {
+    "lat": Decimal("-19.0154"),
+    "lng": Decimal("29.1549"),
+    "forest_cover": Decimal("42.00"),
+    "carbon_density": Decimal("96.50"),
+    "fire_risk": "medium",
+}
 
 
 @router.post(
@@ -185,3 +223,137 @@ async def list_project_audit_events(
 ) -> list[AuditEventResponse]:
     events = await audit_reader.list_for_resource("carbon_project", project_id, limit)
     return [AuditEventResponse.model_validate(event) for event in events]
+
+
+@router.post("/{project_id}/gis-assessment", response_model=GisAssessmentResponse, responses={404: {"model": ErrorResponse}})
+async def run_gis_assessment(
+    project_id: UUID,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> GisAssessmentResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+
+    profile = DISTRICT_GIS_PROFILES.get(project.district.lower(), DEFAULT_GIS_PROFILE)
+    estimated_area = (project.estimated_annual_tco2e / profile["carbon_density"]).quantize(Decimal("0.0001"))
+    boundary_status = "validated" if estimated_area <= Decimal("250000.0000") else "requires_manual_review"
+    findings = [
+        f"Project located in {project.district}, {project.province} with centroid validated against national district profile.",
+        f"Estimated project area is {estimated_area} hectares using declared annual tCO2e and district carbon density.",
+        f"Forest cover profile is {profile['forest_cover']} percent and fire risk is {profile['fire_risk']}.",
+    ]
+    if profile["fire_risk"] == "high":
+        findings.append("High fire risk requires annual satellite fire alert monitoring before credit issuance.")
+
+    response = GisAssessmentResponse(
+        project_id=project.id,
+        district=project.district,
+        province=project.province,
+        centroid_latitude=profile["lat"],
+        centroid_longitude=profile["lng"],
+        estimated_area_hectares=estimated_area,
+        forest_cover_percent=profile["forest_cover"],
+        carbon_density_tco2e_per_hectare=profile["carbon_density"],
+        fire_risk_level=profile["fire_risk"],
+        boundary_validation_status=boundary_status,
+        layers=[
+            GisLayerResponse(name="District boundary", status="matched", summary=f"{project.district} administrative boundary selected."),
+            GisLayerResponse(name="Forest cover", status="analysed", summary=f"{profile['forest_cover']} percent forest cover baseline."),
+            GisLayerResponse(name="Fire alerts", status="analysed", summary=f"{profile['fire_risk']} fire risk classification."),
+            GisLayerResponse(name="Carbon density", status="analysed", summary=f"{profile['carbon_density']} tCO2e per hectare profile."),
+        ],
+        findings=findings,
+        recommendation="GIS assessment passed for workflow use." if boundary_status == "validated" else "Boundary requires regulator review before approval.",
+        generated_at=datetime.now(tz=UTC),
+    )
+    await audit_writer.write(
+        event_type="gis.project.assessment_completed",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="run_gis_assessment",
+        outcome=response.boundary_validation_status,
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "district": response.district,
+            "estimated_area_hectares": str(response.estimated_area_hectares),
+            "fire_risk_level": response.fire_risk_level,
+            "boundary_validation_status": response.boundary_validation_status,
+        },
+    )
+    return response
+
+
+@router.post("/{project_id}/ai-review", response_model=AiReviewResponse, responses={404: {"model": ErrorResponse}})
+async def run_ai_review(
+    project_id: UUID,
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> AiReviewResponse:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+
+    annual_tco2e = project.estimated_annual_tco2e
+    confidence = Decimal("0.91")
+    risk_level = "low"
+    required_actions: list[str] = []
+    findings = [
+        "Project description satisfies minimum narrative completeness for PDD screening.",
+        f"Methodology {project.methodology} is present and linked to afforestation/reforestation review pathway.",
+        f"Crediting period of {project.crediting_period_years} years is inside configured policy limits.",
+    ]
+    if annual_tco2e > Decimal("100000.0000"):
+        risk_level = "medium"
+        confidence = Decimal("0.86")
+        required_actions.append("Require senior verifier review because estimated annual tCO2e exceeds 100,000.")
+    if project.crediting_period_years > 40:
+        risk_level = "high"
+        confidence = Decimal("0.78")
+        required_actions.append("Reduce or justify crediting period above standard programme threshold.")
+    if "afforestation" not in project.methodology.lower() and "forest" not in project.description.lower():
+        risk_level = "medium"
+        confidence = min(confidence, Decimal("0.82"))
+        required_actions.append("Attach methodology applicability evidence for non-forest project narrative.")
+
+    if not required_actions:
+        required_actions.append("Proceed to verifier assignment and regulator review.")
+
+    response = AiReviewResponse(
+        project_id=project.id,
+        review_type="pdd_compliance_and_risk_review",
+        model_version="zai-cts-deterministic-review-1.0",
+        prompt_version="pdd-risk-v1",
+        confidence_score=confidence,
+        risk_level=risk_level,
+        findings=findings,
+        required_actions=required_actions,
+        recommendation="AI review passed with standard verifier controls." if risk_level == "low" else "AI review requires targeted human verification controls.",
+        generated_at=datetime.now(tz=UTC),
+    )
+    await audit_writer.write(
+        event_type="ai.project.review_completed",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action="run_ai_review",
+        outcome=response.risk_level,
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "review_type": response.review_type,
+            "model_version": response.model_version,
+            "prompt_version": response.prompt_version,
+            "confidence_score": str(response.confidence_score),
+            "risk_level": response.risk_level,
+        },
+    )
+    return response

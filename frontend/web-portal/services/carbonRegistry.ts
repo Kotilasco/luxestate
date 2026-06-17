@@ -42,6 +42,42 @@ export type AuditEvent = {
   created_at: string;
 };
 
+export type GisLayer = {
+  name: string;
+  status: string;
+  summary: string;
+};
+
+export type GisAssessment = {
+  project_id: string;
+  district: string;
+  province: string;
+  centroid_latitude: string;
+  centroid_longitude: string;
+  estimated_area_hectares: string;
+  forest_cover_percent: string;
+  carbon_density_tco2e_per_hectare: string;
+  fire_risk_level: string;
+  boundary_validation_status: string;
+  layers: GisLayer[];
+  findings: string[];
+  recommendation: string;
+  generated_at: string;
+};
+
+export type AiReview = {
+  project_id: string;
+  review_type: string;
+  model_version: string;
+  prompt_version: string;
+  confidence_score: string;
+  risk_level: string;
+  findings: string[];
+  required_actions: string[];
+  recommendation: string;
+  generated_at: string;
+};
+
 export type RegisterCarbonProjectPayload = {
   project_code: string;
   title: string;
@@ -140,6 +176,36 @@ export async function listAuditEvents(projectId: string): Promise<AuditEvent[]> 
   if (!response.ok) {
     throw new Error(`Audit event list failed with ${response.status}`);
   }
+  return response.json();
+}
+
+export async function runGisAssessment(projectId: string): Promise<GisAssessment> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/gis-assessment`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: "{}"
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `GIS assessment failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function runAiReview(projectId: string): Promise<AiReview> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/ai-review`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: "{}"
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `AI review failed with ${response.status}`);
+  }
+
   return response.json();
 }
 
