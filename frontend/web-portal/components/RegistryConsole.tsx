@@ -44,6 +44,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   advanceProjectWorkflow,
   AiReview,
+  adoptRegistryRule,
+  allocateBufferPool,
   approveNationalMethodology,
   AuditEvent,
   authorizeArticle6Transfer,
@@ -59,6 +61,8 @@ import {
   getVerificationCase,
   GisAssessment,
   GisEvidencePayload,
+  freezeLedgerCredits,
+  getRetirementCertificate,
   grantVerifierAccreditation,
   issueCreditBatch,
   listAuditEvents,
@@ -66,17 +70,24 @@ import {
   listCreditBatches,
   listEvidence,
   NationalOperations,
+  openAppealCase,
   openComplianceCase,
+  openNonConformance,
   openRegistryAccount,
+  publishPublicDisclosure,
+  recordGisProcessingJob,
+  recordMarketSettlement,
   registerCarbonProject,
   recordStageDecision,
   recordVerificationCaseAction,
+  retireLedgerCredits,
   runAiReview,
   runAutomaticVerification,
   runGisAssessment,
   runVerificationAiAssessment,
   startVerificationCase,
   submitGisEvidence,
+  transferLedgerCredits,
   uploadVerificationEvidenceFiles,
   validateAiReview,
   validateGisEvidence,
@@ -295,6 +306,7 @@ export default function RegistryConsole() {
   const [nationalReadiness, setNationalReadiness] = useState<NationalReadiness | null>(null);
   const [nationalOperations, setNationalOperations] = useState<NationalOperations | null>(null);
   const [nationalActionKey, setNationalActionKey] = useState<string | null>(null);
+  const [certificateLookup, setCertificateLookup] = useState<string | null>(null);
   const [gisAssessment, setGisAssessment] = useState<GisAssessment | null>(null);
   const [aiReview, setAiReview] = useState<AiReview | null>(null);
   const [verificationCase, setVerificationCase] = useState<VerificationCase | null>(null);
@@ -410,6 +422,24 @@ export default function RegistryConsole() {
         type: "error",
         text: error instanceof Error ? error.message : "National operation failed."
       });
+    } finally {
+      setNationalActionKey(null);
+    }
+  }
+
+  async function lookupLatestCertificate() {
+    const certificateId = String(nationalOperations?.ledger_retirements[0]?.metadata?.certificate_id ?? "");
+    if (!certificateId) {
+      setMessage({ type: "info", text: "No retirement certificate exists yet. Retire credits first." });
+      return;
+    }
+    setNationalActionKey("certificate_lookup");
+    try {
+      const certificate = await getRetirementCertificate(certificateId);
+      setCertificateLookup(`${certificate.certificate_id} - ${certificate.status} - ${certificate.quantity_tco2e} tCO2e`);
+      setMessage({ type: "success", text: "Public retirement certificate verified." });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Certificate lookup failed." });
     } finally {
       setNationalActionKey(null);
     }
@@ -2013,9 +2043,15 @@ export default function RegistryConsole() {
             <Typography variant="h6" fontWeight={900}>Execute Stage Controls</Typography>
             <div className="mt-4 grid gap-3 lg:grid-cols-3">
               {[
+                ["registry_rule", "Adopt Registry Rulebook", "Rulebook adopted", () => adoptRegistryRule()],
+                ["public_disclosure", "Publish Public Disclosure", "Disclosure published", () => publishPublicDisclosure(selectedProjectCode)],
+                ["appeal_case", "Open Appeal Case", "Appeal case opened", () => openAppealCase()],
                 ["registry_account", "Open Registry Account", "Account control already recorded", () => openRegistryAccount()],
                 ["methodology", "Approve Methodology", "Methodology already approved", () => approveNationalMethodology()],
-                ["verifier_accreditation", "Grant Accreditation", "Verifier accreditation active", () => grantVerifierAccreditation()]
+                ["verifier_accreditation", "Grant Accreditation", "Verifier accreditation active", () => grantVerifierAccreditation()],
+                ["gis_processing_job", "Record GIS Lineage", "GIS lineage recorded", () => recordGisProcessingJob(selectedProjectCode)],
+                ["non_conformance", "Open Non-Conformance", "Non-conformance opened", () => openNonConformance(selectedProjectCode)],
+                ["buffer_allocation", "Allocate Buffer Pool", "Buffer allocated", () => allocateBufferPool(selectedProjectCode)]
               ].map(([key, label, doneLabel, action]) => {
                 const isDone = nationalOperationTypes.has(key as string);
                 return (
@@ -2088,6 +2124,10 @@ export default function RegistryConsole() {
               {[
                 ["Authorizations", String(nationalOperations?.article6_authorizations.length ?? 0), "Host-country authorization records"],
                 ["Listings", String(nationalOperations?.marketplace_controls.length ?? 0), "Marketplace surveillance controls"],
+                ["Transfers", String(nationalOperations?.ledger_transfers.length ?? 0), "Account ledger transfers"],
+                ["Retirements", String(nationalOperations?.ledger_retirements.length ?? 0), "Public certificate retirements"],
+                ["Freezes", String(nationalOperations?.ledger_freezes.length ?? 0), "Regulatory ledger holds"],
+                ["Settlements", String(nationalOperations?.market_settlements.length ?? 0), "Market settlement controls"],
                 ["Snapshots", String(nationalOperations?.accounting_snapshots.length ?? 0), "National accounting locks"],
                 ["CA Status", nationalOperationTypes.has("article6_authorization") ? "flagged" : "not started", "Corresponding adjustment control"]
               ].map(([label, value, note]) => (
@@ -2102,6 +2142,10 @@ export default function RegistryConsole() {
               {[
                 ["article6_authorization", "Authorize Article 6 Transfer", () => authorizeArticle6Transfer(selectedProjectCode)],
                 ["marketplace_listing", "Create Market Listing Control", () => createMarketplaceListingControl(selectedProjectCode)],
+                ["market_settlement", "Record Market Settlement", () => recordMarketSettlement()],
+                ["ledger_transfer", "Transfer Credits", () => transferLedgerCredits(selectedProjectCode)],
+                ["ledger_retirement", "Retire Credits", () => retireLedgerCredits(selectedProjectCode)],
+                ["ledger_freeze", "Freeze Credits", () => freezeLedgerCredits(selectedProjectCode)],
                 ["accounting_snapshot", "Lock Accounting Snapshot", () => createAccountingSnapshot()]
               ].map(([key, label, action]) => {
                 const isDone = nationalOperationTypes.has(key as string);
@@ -2117,6 +2161,25 @@ export default function RegistryConsole() {
                   </Button>
                 );
               })}
+            </div>
+            <div className="mt-5 rounded-md border bg-white p-4">
+              <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                <div>
+                  <Typography variant="h6" fontWeight={900}>Public Retirement Certificate</Typography>
+                  <p className="text-sm text-slate-600">
+                    Verify the latest retirement certificate through the public lookup endpoint.
+                  </p>
+                  {certificateLookup ? <p className="mt-2 text-sm font-bold text-zai-ink">{certificateLookup}</p> : null}
+                </div>
+                <Button
+                  variant="outlined"
+                  disabled={nationalActionKey === "certificate_lookup"}
+                  onClick={lookupLatestCertificate}
+                  startIcon={<FactCheckIcon />}
+                >
+                  Verify Certificate
+                </Button>
+              </div>
             </div>
           </Paper>
           <Paper elevation={0} className="border p-6">
@@ -2146,10 +2209,15 @@ export default function RegistryConsole() {
               {[
                 ["Open enforcement cases", String(nationalOperations?.compliance_cases.length ?? 0)],
                 ["Verifier accreditations", String(nationalOperations?.accreditations.length ?? 0)],
+                ["Registry rules", String(nationalOperations?.legal_rules.length ?? 0)],
+                ["Appeals", String(nationalOperations?.appeal_cases.length ?? 0)],
                 ["Market conduct alerts", String(nationalOperations?.marketplace_controls.length ?? 0)],
+                ["Public disclosures", String(nationalOperations?.public_disclosures.length ?? 0)],
+                ["GIS processing jobs", String(nationalOperations?.gis_processing_jobs.length ?? 0)],
+                ["Non-conformances", String(nationalOperations?.non_conformances.length ?? 0)],
+                ["Buffer allocations", String(nationalOperations?.buffer_allocations.length ?? 0)],
                 ["Fraud risk alerts", String(aiDocumentChecks.filter((check) => String(check.ownership_status) !== "matched").length)],
-                ["Pending appeals", "0"],
-                ["Public disclosures", String(nationalOperations?.audit_timeline.length ?? 0)]
+                ["Audit events", String(nationalOperations?.audit_timeline.length ?? 0)]
               ].map(([label, value]) => (
                 <div key={label} className="rounded-md border bg-white p-4">
                   <strong className="block text-2xl text-zai-ink">{value}</strong>

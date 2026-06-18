@@ -84,10 +84,101 @@ async def test_national_operations_record_auditable_controls() -> None:
         )
         assert methodology_response.status_code == 201
 
+        for path, payload in [
+            (
+                "/api/v1/national-operations/rules/adopt",
+                {
+                    "rule_code": "ZAI-RULE-001",
+                    "title": "National Carbon Registry Operating Rules",
+                    "effective_date": "2026-07-01",
+                    "authority_reference": "ZiCMA-REGISTRY-AUTHORITY-2026",
+                },
+            ),
+            (
+                "/api/v1/national-operations/public-disclosures/publish",
+                {
+                    "disclosure_type": "project",
+                    "title": "ZAI-20250002 public registry disclosure",
+                    "publication_reference": "PUBLIC-ZAI-20250002-2026",
+                },
+            ),
+            (
+                "/api/v1/national-operations/gis/jobs",
+                {
+                    "project_code": "ZAI-20250002",
+                    "job_type": "stac_raster_processing",
+                    "source_dataset": "Sentinel-2 L2A",
+                    "processing_hash": "GIS-HASH-2026-001",
+                },
+            ),
+            (
+                "/api/v1/national-operations/verification/buffer-allocations",
+                {
+                    "project_code": "ZAI-20250002",
+                    "issued_tco2e": 50000,
+                    "buffer_percent": 12.5,
+                    "reversal_risk_class": "medium",
+                },
+            ),
+            (
+                "/api/v1/national-operations/ledger/transfers",
+                {
+                    "serial_prefix": "ZW-ZAI-20250002-2026",
+                    "from_account": "ACC-DEVELOPER",
+                    "to_account": "ACC-BUYER",
+                    "quantity_tco2e": 10000,
+                    "settlement_reference": "SETTLEMENT-001",
+                },
+            ),
+            (
+                "/api/v1/national-operations/ledger/freezes",
+                {
+                    "serial_prefix": "ZW-ZAI-20250002-2026",
+                    "reason": "Regulatory surveillance hold.",
+                    "freeze_scope": "batch",
+                },
+            ),
+            (
+                "/api/v1/national-operations/marketplace/settlements",
+                {
+                    "listing_reference": "LISTING-001",
+                    "buyer_account": "ACC-BUYER",
+                    "seller_account": "ACC-DEVELOPER",
+                    "quantity_tco2e": 10000,
+                    "settlement_status": "escrow_locked",
+                },
+            ),
+        ]:
+            response = await client.post(path, headers={"X-Actor-Role": "regulator.approver"}, json=payload)
+            assert response.status_code == 201
+
+        retirement_response = await client.post(
+            "/api/v1/national-operations/ledger/retirements",
+            headers={"X-Actor-Role": "regulator.approver"},
+            json={
+                "serial_prefix": "ZW-ZAI-20250002-2026",
+                "account_id": "ACC-BUYER",
+                "beneficiary": "Zimbabwe Net Zero Claim Demonstration",
+                "purpose": "Voluntary climate claim retirement",
+                "quantity_tco2e": 2500,
+            },
+        )
+        assert retirement_response.status_code == 201
+
         operations_response = await client.get("/api/v1/national-operations")
         assert operations_response.status_code == 200
         body = operations_response.json()
         assert len(body["registry_accounts"]) == 1
         assert len(body["methodologies"]) == 1
+        assert len(body["ledger_transfers"]) == 1
+        assert len(body["ledger_retirements"]) == 1
+        assert len(body["ledger_freezes"]) == 1
+        assert len(body["public_disclosures"]) == 1
         assert body["stage_completion"][1]["completed_controls"] == 1
-        assert len(body["audit_timeline"]) == 2
+        assert len(body["audit_timeline"]) == 10
+
+        certificate_id = body["ledger_retirements"][0]["metadata"]["certificate_id"]
+        certificate_response = await client.get(f"/api/v1/national-operations/public/retirement-certificates/{certificate_id}")
+        assert certificate_response.status_code == 200
+        assert certificate_response.json()["status"] == "retired"
+        assert certificate_response.json()["quantity_tco2e"] == 2500

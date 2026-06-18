@@ -243,10 +243,20 @@ export type NationalOperations = {
     completion_percent: number;
     status: string;
   }>;
+  legal_rules: NationalOperationRecord[];
+  public_disclosures: NationalOperationRecord[];
+  appeal_cases: NationalOperationRecord[];
   registry_accounts: NationalOperationRecord[];
   methodologies: NationalOperationRecord[];
   accreditations: NationalOperationRecord[];
+  gis_processing_jobs: NationalOperationRecord[];
+  non_conformances: NationalOperationRecord[];
+  buffer_allocations: NationalOperationRecord[];
+  ledger_transfers: NationalOperationRecord[];
+  ledger_retirements: NationalOperationRecord[];
+  ledger_freezes: NationalOperationRecord[];
   article6_authorizations: NationalOperationRecord[];
+  market_settlements: NationalOperationRecord[];
   marketplace_controls: NationalOperationRecord[];
   compliance_cases: NationalOperationRecord[];
   accounting_snapshots: NationalOperationRecord[];
@@ -259,6 +269,17 @@ export type NationalActionResult = {
   status: string;
   message: string;
   generated_at: string;
+};
+
+export type RetirementCertificate = {
+  certificate_id: string;
+  status: string;
+  beneficiary: string;
+  purpose: string;
+  serial_prefix: string;
+  quantity_tco2e: number;
+  retired_at: string;
+  verification_hash: string;
 };
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8082";
@@ -317,6 +338,31 @@ export function openRegistryAccount() {
   });
 }
 
+export function adoptRegistryRule() {
+  return postNationalOperation("/rules/adopt", {
+    rule_code: "ZAI-RULE-001",
+    title: "National Carbon Registry Operating Rules",
+    effective_date: "2026-07-01",
+    authority_reference: "ZiCMA-REGISTRY-AUTHORITY-2026"
+  });
+}
+
+export function publishPublicDisclosure(projectCode: string) {
+  return postNationalOperation("/public-disclosures/publish", {
+    disclosure_type: "project",
+    title: `${projectCode} public registry disclosure`,
+    publication_reference: `PUBLIC-${projectCode}-2026`
+  });
+}
+
+export function openAppealCase() {
+  return postNationalOperation("/appeals/open", {
+    appellant: "Kariba Forest Carbon Programme Ltd",
+    decision_reference: "ZAI-DECISION-2026-001",
+    grounds: "Developer requests review of regulator decision and supporting evidence interpretation."
+  });
+}
+
 export function approveNationalMethodology() {
   return postNationalOperation("/methodologies/approve", {
     code: "ZAI-ARR-001",
@@ -333,6 +379,61 @@ export function grantVerifierAccreditation() {
     scope: "AFOLU, ARR, REDD+ and improved forest management",
     valid_until: "2027-12-31",
     conflict_screening_reference: "COI-SCREEN-2026-001"
+  });
+}
+
+export function recordGisProcessingJob(projectCode: string) {
+  return postNationalOperation("/gis/jobs", {
+    project_code: projectCode,
+    job_type: "stac_raster_processing",
+    source_dataset: "Sentinel-2 L2A, NASA FIRMS, ESA WorldCover, Zimbabwe administrative boundaries",
+    processing_hash: `GIS-${crypto.randomUUID()}`
+  });
+}
+
+export function openNonConformance(projectCode: string) {
+  return postNationalOperation("/verification/non-conformances", {
+    project_code: projectCode,
+    severity: "major",
+    finding: "MRV evidence requires corrective action before final issuance authorization.",
+    corrective_action_due: "2026-08-31"
+  });
+}
+
+export function allocateBufferPool(projectCode: string) {
+  return postNationalOperation("/verification/buffer-allocations", {
+    project_code: projectCode,
+    issued_tco2e: 50000,
+    buffer_percent: 12.5,
+    reversal_risk_class: "medium"
+  });
+}
+
+export function transferLedgerCredits(projectCode: string) {
+  return postNationalOperation("/ledger/transfers", {
+    serial_prefix: `ZW-${projectCode}-2026`,
+    from_account: "ACC-KARIBA-DEVELOPER",
+    to_account: "ACC-ZIM-BUYER-001",
+    quantity_tco2e: 10000,
+    settlement_reference: "SETTLEMENT-2026-001"
+  });
+}
+
+export function retireLedgerCredits(projectCode: string) {
+  return postNationalOperation("/ledger/retirements", {
+    serial_prefix: `ZW-${projectCode}-2026`,
+    account_id: "ACC-ZIM-BUYER-001",
+    beneficiary: "Zimbabwe Net Zero Claim Demonstration",
+    purpose: "Voluntary climate claim retirement",
+    quantity_tco2e: 2500
+  });
+}
+
+export function freezeLedgerCredits(projectCode: string) {
+  return postNationalOperation("/ledger/freezes", {
+    serial_prefix: `ZW-${projectCode}-2026`,
+    reason: "Regulator freeze applied while duplicate-claim surveillance case is reviewed.",
+    freeze_scope: "batch"
   });
 }
 
@@ -353,6 +454,16 @@ export function createMarketplaceListingControl(projectCode: string) {
     volume_tco2e: 10000,
     floor_price_usd: 8.5,
     claims_control: "Buyer claims limited to retired units with public certificate"
+  });
+}
+
+export function recordMarketSettlement() {
+  return postNationalOperation("/marketplace/settlements", {
+    listing_reference: "LISTING-2026-001",
+    buyer_account: "ACC-ZIM-BUYER-001",
+    seller_account: "ACC-KARIBA-DEVELOPER",
+    quantity_tco2e: 10000,
+    settlement_status: "escrow_locked"
   });
 }
 
@@ -381,6 +492,16 @@ export function recordStageDecision(stage: number) {
     decision: "control_passed",
     notes: `Stage ${stage} minimum operating controls reviewed and marked ready for controlled pilot progression.`
   });
+}
+
+export async function getRetirementCertificate(certificateId: string): Promise<RetirementCertificate> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/national-operations/public/retirement-certificates/${certificateId}`, {
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    throw new Error(`Retirement certificate lookup failed with ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function registerCarbonProject(payload: RegisterCarbonProjectPayload): Promise<CarbonProject> {

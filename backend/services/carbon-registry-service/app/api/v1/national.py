@@ -50,10 +50,20 @@ class NationalOperationRecord(BaseModel):
 class NationalOperationsResponse(BaseModel):
     generated_at: datetime
     stage_completion: list[dict[str, object]]
+    legal_rules: list[NationalOperationRecord]
+    public_disclosures: list[NationalOperationRecord]
+    appeal_cases: list[NationalOperationRecord]
     registry_accounts: list[NationalOperationRecord]
     methodologies: list[NationalOperationRecord]
     accreditations: list[NationalOperationRecord]
+    gis_processing_jobs: list[NationalOperationRecord]
+    non_conformances: list[NationalOperationRecord]
+    buffer_allocations: list[NationalOperationRecord]
+    ledger_transfers: list[NationalOperationRecord]
+    ledger_retirements: list[NationalOperationRecord]
+    ledger_freezes: list[NationalOperationRecord]
     article6_authorizations: list[NationalOperationRecord]
+    market_settlements: list[NationalOperationRecord]
     marketplace_controls: list[NationalOperationRecord]
     compliance_cases: list[NationalOperationRecord]
     accounting_snapshots: list[NationalOperationRecord]
@@ -120,11 +130,92 @@ class StageDecisionRequest(BaseModel):
     notes: str = Field(min_length=8, max_length=600)
 
 
+class RegistryRuleRequest(BaseModel):
+    rule_code: str = Field(min_length=3, max_length=40)
+    title: str = Field(min_length=4, max_length=180)
+    effective_date: str = Field(min_length=10, max_length=10)
+    authority_reference: str = Field(min_length=4, max_length=160)
+
+
+class PublicDisclosureRequest(BaseModel):
+    disclosure_type: str = Field(pattern="^(project|issuance|retirement|sanction|methodology|article6)$")
+    title: str = Field(min_length=4, max_length=180)
+    publication_reference: str = Field(min_length=4, max_length=160)
+
+
+class AppealCaseRequest(BaseModel):
+    appellant: str = Field(min_length=3, max_length=180)
+    decision_reference: str = Field(min_length=4, max_length=120)
+    grounds: str = Field(min_length=10, max_length=600)
+
+
+class GisProcessingJobRequest(BaseModel):
+    project_code: str = Field(min_length=3, max_length=40)
+    job_type: str = Field(pattern="^(boundary_overlap|cadastre_check|protected_area_check|stac_raster_processing|fire_screening)$")
+    source_dataset: str = Field(min_length=4, max_length=180)
+    processing_hash: str = Field(min_length=8, max_length=128)
+
+
+class NonConformanceRequest(BaseModel):
+    project_code: str = Field(min_length=3, max_length=40)
+    severity: str = Field(pattern="^(minor|major|critical)$")
+    finding: str = Field(min_length=10, max_length=600)
+    corrective_action_due: str = Field(min_length=10, max_length=10)
+
+
+class BufferAllocationRequest(BaseModel):
+    project_code: str = Field(min_length=3, max_length=40)
+    issued_tco2e: int = Field(gt=0)
+    buffer_percent: float = Field(ge=0, le=100)
+    reversal_risk_class: str = Field(pattern="^(low|medium|high|critical)$")
+
+
+class LedgerTransferRequest(BaseModel):
+    serial_prefix: str = Field(min_length=4, max_length=120)
+    from_account: str = Field(min_length=4, max_length=120)
+    to_account: str = Field(min_length=4, max_length=120)
+    quantity_tco2e: int = Field(gt=0)
+    settlement_reference: str = Field(min_length=4, max_length=160)
+
+
+class LedgerRetirementRequest(BaseModel):
+    serial_prefix: str = Field(min_length=4, max_length=120)
+    account_id: str = Field(min_length=4, max_length=120)
+    beneficiary: str = Field(min_length=3, max_length=180)
+    purpose: str = Field(min_length=4, max_length=180)
+    quantity_tco2e: int = Field(gt=0)
+
+
+class LedgerFreezeRequest(BaseModel):
+    serial_prefix: str = Field(min_length=4, max_length=120)
+    reason: str = Field(min_length=10, max_length=600)
+    freeze_scope: str = Field(pattern="^(batch|account|project|market_listing)$")
+
+
+class MarketSettlementRequest(BaseModel):
+    listing_reference: str = Field(min_length=4, max_length=120)
+    buyer_account: str = Field(min_length=4, max_length=120)
+    seller_account: str = Field(min_length=4, max_length=120)
+    quantity_tco2e: int = Field(gt=0)
+    settlement_status: str = Field(pattern="^(escrow_locked|settled|failed|cancelled)$")
+
+
 class NationalActionResponse(BaseModel):
     id: str
     status: str
     message: str
     generated_at: datetime
+
+
+class RetirementCertificateResponse(BaseModel):
+    certificate_id: str
+    status: str
+    beneficiary: str
+    purpose: str
+    serial_prefix: str
+    quantity_tco2e: int
+    retired_at: datetime
+    verification_hash: str
 
 
 NATIONAL_STAGES = [
@@ -351,14 +442,14 @@ def _filter_records(records: list[NationalOperationRecord], operation_type: str)
 
 def _stage_completion(records: list[NationalOperationRecord]) -> list[dict[str, object]]:
     completion_controls = {
-        1: ["stage_decision"],
+        1: ["registry_rule", "public_disclosure", "appeal_case", "stage_decision"],
         2: ["registry_account", "verifier_accreditation"],
         3: ["methodology"],
-        4: ["stage_decision"],
-        5: ["stage_decision"],
-        6: ["marketplace_listing"],
+        4: ["gis_processing_job", "stage_decision"],
+        5: ["non_conformance", "buffer_allocation", "stage_decision"],
+        6: ["ledger_transfer", "ledger_retirement", "ledger_freeze"],
         7: ["article6_authorization", "accounting_snapshot"],
-        8: ["compliance_case", "marketplace_listing"],
+        8: ["compliance_case", "marketplace_listing", "market_settlement", "public_disclosure"],
     }
     result: list[dict[str, object]] = []
     for stage in NATIONAL_STAGES:
@@ -422,15 +513,128 @@ async def get_national_operations(
     return NationalOperationsResponse(
         generated_at=datetime.now(tz=UTC),
         stage_completion=_stage_completion(records),
+        legal_rules=_filter_records(records, "registry_rule"),
+        public_disclosures=_filter_records(records, "public_disclosure"),
+        appeal_cases=_filter_records(records, "appeal_case"),
         registry_accounts=_filter_records(records, "registry_account"),
         methodologies=_filter_records(records, "methodology"),
         accreditations=_filter_records(records, "verifier_accreditation"),
+        gis_processing_jobs=_filter_records(records, "gis_processing_job"),
+        non_conformances=_filter_records(records, "non_conformance"),
+        buffer_allocations=_filter_records(records, "buffer_allocation"),
+        ledger_transfers=_filter_records(records, "ledger_transfer"),
+        ledger_retirements=_filter_records(records, "ledger_retirement"),
+        ledger_freezes=_filter_records(records, "ledger_freeze"),
         article6_authorizations=_filter_records(records, "article6_authorization"),
+        market_settlements=_filter_records(records, "market_settlement"),
         marketplace_controls=_filter_records(records, "marketplace_listing"),
         compliance_cases=_filter_records(records, "compliance_case"),
         accounting_snapshots=_filter_records(records, "accounting_snapshot"),
         stage_decisions=_filter_records(records, "stage_decision"),
         audit_timeline=records[:50],
+    )
+
+
+@operations_router.get("/public/retirement-certificates/{certificate_id}", response_model=RetirementCertificateResponse)
+async def get_retirement_certificate(
+    certificate_id: str,
+    audit_reader: AuditReader = Depends(get_audit_reader),
+) -> RetirementCertificateResponse:
+    events = await audit_reader.list_for_resource("national_registry", NATIONAL_OPERATIONS_RESOURCE_ID, 300)
+    records = [_operation_record(event) for event in events]
+    for record in records:
+        if record.operation_type == "ledger_retirement" and record.metadata.get("certificate_id") == certificate_id:
+            return RetirementCertificateResponse(
+                certificate_id=certificate_id,
+                status=record.status,
+                beneficiary=str(record.metadata.get("beneficiary", "")),
+                purpose=str(record.metadata.get("purpose", "")),
+                serial_prefix=str(record.metadata.get("serial_prefix", "")),
+                quantity_tco2e=int(record.metadata.get("quantity_tco2e", 0)),
+                retired_at=record.created_at,
+                verification_hash=str(record.metadata.get("operation_id", record.id)),
+            )
+    return RetirementCertificateResponse(
+        certificate_id=certificate_id,
+        status="not_found",
+        beneficiary="",
+        purpose="",
+        serial_prefix="",
+        quantity_tco2e=0,
+        retired_at=datetime.now(tz=UTC),
+        verification_hash="",
+    )
+
+
+@operations_router.post("/rules/adopt", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def adopt_registry_rule(
+    request: RegistryRuleRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "registry_rule",
+            "status": "adopted",
+            "title": request.title,
+            "stage": 1,
+            "owner": "National Registry Authority",
+            "controls": ["Legal authority referenced", "Effective date locked", "Rulebook audit entry created"],
+            "message": "Registry operating rule adopted.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/public-disclosures/publish", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def publish_public_disclosure(
+    request: PublicDisclosureRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "public_disclosure",
+            "status": "published",
+            "title": request.title,
+            "stage": 1 if request.disclosure_type in {"methodology", "project"} else 8,
+            "owner": "Public Registry Desk",
+            "controls": ["Disclosure approval captured", "Publication reference locked", "Public registry timeline updated"],
+            "message": "Public disclosure published to the registry transparency workflow.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/appeals/open", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def open_appeal_case(
+    request: AppealCaseRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "appeal_case",
+            "status": "open",
+            "title": f"Appeal by {request.appellant}",
+            "stage": 1,
+            "owner": "Appeals Secretariat",
+            "controls": ["Decision reference captured", "Appeal grounds recorded", "Regulator review clock started"],
+            "message": "Appeal case opened.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
     )
 
 
@@ -506,6 +710,155 @@ async def grant_verifier_accreditation(
     )
 
 
+@operations_router.post("/gis/jobs", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def record_gis_processing_job(
+    request: GisProcessingJobRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "gis_processing_job",
+            "status": "lineage_recorded",
+            "title": f"{request.project_code} {request.job_type}",
+            "stage": 4,
+            "owner": "GIS Operations",
+            "controls": ["Source dataset recorded", "Processing hash locked", "Spatial decision reproducibility enabled"],
+            "message": "GIS processing job lineage recorded.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/verification/non-conformances", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def open_non_conformance(
+    request: NonConformanceRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "non_conformance",
+            "status": "open",
+            "title": f"{request.project_code} {request.severity} non-conformance",
+            "stage": 5,
+            "owner": "Verification Oversight",
+            "controls": ["Finding recorded", "Severity classified", "Corrective action deadline locked"],
+            "message": "Verification non-conformance opened.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/verification/buffer-allocations", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def allocate_buffer_pool(
+    request: BufferAllocationRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    buffer_quantity = round(request.issued_tco2e * (request.buffer_percent / 100))
+    return await _write_operation(
+        payload={
+            "operation_type": "buffer_allocation",
+            "status": "allocated",
+            "title": f"{request.project_code} buffer allocation",
+            "stage": 5,
+            "owner": "Issuance Control Desk",
+            "controls": ["Reversal risk classified", "Buffer percentage applied", "Net issuable volume calculated"],
+            "message": "Buffer allocation recorded for issuance risk control.",
+            "buffer_quantity_tco2e": buffer_quantity,
+            "net_issuable_tco2e": request.issued_tco2e - buffer_quantity,
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/ledger/transfers", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def transfer_credit_units(
+    request: LedgerTransferRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "ledger_transfer",
+            "status": "transferred",
+            "title": f"{request.quantity_tco2e} tCO2e transfer {request.serial_prefix}",
+            "stage": 6,
+            "owner": "National Ledger",
+            "controls": ["Source account debited", "Destination account credited", "Settlement reference linked"],
+            "message": "Credit transfer recorded in the national ledger workflow.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/ledger/retirements", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def retire_credit_units(
+    request: LedgerRetirementRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    certificate_id = f"ZW-RET-{datetime.now(tz=UTC).strftime('%Y%m%d')}-{uuid4().hex[:8].upper()}"
+    return await _write_operation(
+        payload={
+            "operation_type": "ledger_retirement",
+            "status": "retired",
+            "title": f"Retirement certificate {certificate_id}",
+            "stage": 6,
+            "owner": "National Ledger",
+            "controls": ["Units removed from circulation", "Beneficiary captured", "Public certificate generated"],
+            "message": "Credit retirement recorded and certificate generated.",
+            "certificate_id": certificate_id,
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/ledger/freezes", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def freeze_credit_units(
+    request: LedgerFreezeRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "ledger_freeze",
+            "status": "frozen",
+            "title": f"{request.freeze_scope} freeze {request.serial_prefix}",
+            "stage": 6,
+            "owner": "Regulatory Enforcement",
+            "controls": ["Transfer hold applied", "Reason recorded", "Enforcement timeline updated"],
+            "message": "Credit units frozen for regulatory control.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
 @operations_router.post("/article6/authorize", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
 async def authorize_article6_transfer(
     request: Article6AuthorizationRequest,
@@ -522,6 +875,30 @@ async def authorize_article6_transfer(
             "owner": "National Article 6 Authority",
             "controls": ["Host-country authorization", "NDC sector mapped", "Corresponding adjustment flagged"],
             "message": "Article 6 authorization recorded for national accounting control.",
+            **request.model_dump(),
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
+    )
+
+
+@operations_router.post("/marketplace/settlements", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def record_market_settlement(
+    request: MarketSettlementRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    return await _write_operation(
+        payload={
+            "operation_type": "market_settlement",
+            "status": request.settlement_status,
+            "title": f"Settlement {request.listing_reference}",
+            "stage": 8,
+            "owner": "Market Oversight Desk",
+            "controls": ["Buyer account linked", "Seller account linked", "Settlement state locked"],
+            "message": "Marketplace settlement control recorded.",
             **request.model_dump(),
         },
         audit_writer=audit_writer,

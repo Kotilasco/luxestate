@@ -128,11 +128,22 @@ The portal now includes live national operating controls under `National Stages`
 
 - `GET /api/v1/national-readiness` returns the national maturity model and stage gaps.
 - `GET /api/v1/national-operations` returns auditable control records, stage completion, and the national audit timeline.
+- `GET /api/v1/national-operations/public/retirement-certificates/{certificate_id}` verifies public retirement certificates.
+- `POST /api/v1/national-operations/rules/adopt` records legal registry rulebook adoption.
+- `POST /api/v1/national-operations/public-disclosures/publish` records public registry disclosure.
+- `POST /api/v1/national-operations/appeals/open` opens regulator appeal cases.
 - `POST /api/v1/national-operations/accounts/open` records KYB-backed registry account opening.
 - `POST /api/v1/national-operations/methodologies/approve` records methodology approval and version locking.
 - `POST /api/v1/national-operations/accreditations/grant` records verifier accreditation and conflict screening.
+- `POST /api/v1/national-operations/gis/jobs` records GIS processing lineage.
+- `POST /api/v1/national-operations/verification/non-conformances` opens MRV non-conformance cases.
+- `POST /api/v1/national-operations/verification/buffer-allocations` records buffer pool allocation.
+- `POST /api/v1/national-operations/ledger/transfers` records credit ledger transfers.
+- `POST /api/v1/national-operations/ledger/retirements` records credit retirements and certificate generation.
+- `POST /api/v1/national-operations/ledger/freezes` records regulatory credit freezes.
 - `POST /api/v1/national-operations/article6/authorize` records host-country Article 6 authorization.
 - `POST /api/v1/national-operations/marketplace/list` records marketplace listing surveillance controls.
+- `POST /api/v1/national-operations/marketplace/settlements` records marketplace settlement state.
 - `POST /api/v1/national-operations/compliance/cases` opens regulator enforcement cases.
 - `POST /api/v1/national-operations/reporting/snapshots` locks national accounting snapshots.
 - `POST /api/v1/national-operations/stages/decision` records stage control decisions.
