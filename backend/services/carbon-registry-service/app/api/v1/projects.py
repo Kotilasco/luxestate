@@ -115,16 +115,16 @@ EVIDENCE_CATEGORY_GROUPS = {
 
 ALLOWED_EVIDENCE_EXTENSIONS = {
     "boundary": {".geojson", ".json", ".kml", ".zip", ".shp"},
-    "monitoring_report": {".pdf", ".doc", ".docx"},
-    "carbon_calculation": {".xlsx", ".xls", ".csv"},
-    "biomass_inventory": {".csv", ".xlsx", ".xls"},
+    "monitoring_report": {".pdf", ".doc", ".docx", ".zip"},
+    "carbon_calculation": {".xlsx", ".xls", ".csv", ".zip"},
+    "biomass_inventory": {".csv", ".xlsx", ".xls", ".zip"},
     "satellite_imagery": {".json", ".tif", ".tiff", ".zip"},
     "field_photo": {".jpg", ".jpeg", ".png", ".zip"},
-    "inspection_form": {".pdf", ".doc", ".docx"},
+    "inspection_form": {".pdf", ".doc", ".docx", ".zip"},
     "drone_imagery": {".zip", ".tif", ".tiff", ".jpg", ".jpeg"},
-    "verifier_statement": {".pdf", ".doc", ".docx"},
-    "accreditation_certificate": {".pdf"},
-    "digital_signature": {".txt", ".sig", ".pem", ".p7s"},
+    "verifier_statement": {".pdf", ".doc", ".docx", ".zip"},
+    "accreditation_certificate": {".pdf", ".zip"},
+    "digital_signature": {".txt", ".sig", ".pem", ".p7s", ".zip"},
 }
 
 AUDITABLE_VERIFICATION_ACTIONS = {

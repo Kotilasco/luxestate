@@ -1,0 +1,1 @@
+﻿{"type":"FeatureCollection","name":"ZAI boundary","features":[{"type":"Feature","properties":{"ZAI-TEST1003":"ZAI-TEST1003","evidence_category":"boundary"},"geometry":{"type":"Polygon","coordinates":[[[28.72,-16.45],[28.92,-16.45],[28.92,-16.62],[28.72,-16.62],[28.72,-16.45]]]}}]}

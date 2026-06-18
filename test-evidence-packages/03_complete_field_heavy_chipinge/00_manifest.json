@@ -1,0 +1,25 @@
+﻿{
+    "package_id":  "03_complete_field_heavy_chipinge",
+    "ZAI-TEST1003":  "ZAI-TEST1003",
+    "system":  "ZAI-CTS",
+    "intended_use":  "Verification evidence package test upload",
+    "district":  "Chipinge",
+    "risk_profile":  "medium",
+    "assigned_verifier":  "Independent Forestry Verification Unit",
+    "monitoring_period_start":  "2026-01-01",
+    "monitoring_period_end":  "2026-12-31",
+    "categories":  [
+                       "boundary",
+                       "monitoring_report",
+                       "carbon_calculation",
+                       "biomass_inventory",
+                       "satellite_imagery",
+                       "field_photo",
+                       "inspection_form",
+                       "drone_imagery",
+                       "verifier_statement",
+                       "accreditation_certificate",
+                       "digital_signature"
+                   ],
+    "declaration":  "Every file in this ZIP contains ZAI-TEST1003 markers and is for local workflow testing only."
+}
