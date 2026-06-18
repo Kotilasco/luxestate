@@ -775,6 +775,275 @@ export default function RegistryConsole() {
           </Paper>
         </div>
       ) : activeTab === "verification" ? (
+        <div className="grid gap-5">
+          <Paper elevation={0} className="overflow-hidden border bg-slate-950 text-white">
+            <div className="grid min-h-[720px] xl:grid-cols-[280px_1fr_360px]">
+              <aside className="border-r border-white/10 bg-slate-900 p-4">
+                <div className="rounded-md bg-white/10 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-200">Verification Case</p>
+                  <strong className="mt-2 block text-xl">{verificationCase?.verification_id ?? "No active case"}</strong>
+                  <span className="text-sm text-slate-300">{formatStatus(verificationCase?.status ?? "not started")}</span>
+                </div>
+
+                <div className="mt-4 rounded-md border border-white/10 bg-white/5 p-4">
+                  <span className="text-xs uppercase tracking-wider text-slate-400">Project</span>
+                  <strong className="mt-1 block text-sm">{selectedProject?.project_code ?? "None selected"}</strong>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">{selectedProject?.title ?? "Select a project to begin verification."}</p>
+                </div>
+
+                <Typography className="mt-5" variant="subtitle2" fontWeight={900}>Case Controls</Typography>
+                <Stack spacing={1.2} className="mt-3">
+                  {verificationCase ? (
+                    <Chip color="success" icon={<LockIcon />} label="Case started" />
+                  ) : (
+                    <Button variant="contained" startIcon={<AssignmentTurnedInIcon />} disabled={isLoading || !selectedProject} onClick={() => runVerificationStep("start")}>Start Case</Button>
+                  )}
+                  {caseActionButton("save_draft", "Save Draft", "Verification case dashboard draft saved by case operator.")}
+                  {caseActionButton("request_more_information", "Request More Information", "Additional project evidence and clarifications requested from the proponent.")}
+                  {caseActionButton("export_verification_report", "Export Report", "Verification report exported with audit references, evidence hashes and reviewer decisions.")}
+                  {caseActionButton("digitally_sign", "Digitally Sign", "Case officer digitally signed the current verification case record.")}
+                </Stack>
+
+                <Divider className="my-5 border-white/10" />
+                <Typography variant="subtitle2" fontWeight={900}>Workflow</Typography>
+                <Stack spacing={1.2} className="mt-3">
+                  {[
+                    ["Evidence", verificationCase?.evidence_complete ? "complete" : "pending"],
+                    ["Automatic", verificationCase?.automatic_validation_status ?? "not_started"],
+                    ["AI", verificationCase?.ai_status ?? "not_started"],
+                    ["GIS", verificationCase?.gis_status ?? "not_started"],
+                    ["MRV", verificationCase?.mrv_status ?? "not_started"],
+                    ["Verifier", verificationCase?.verifier_status ?? "not_started"],
+                    ["ZiCMA", verificationCase?.zicma_status ?? "not_started"]
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between rounded-md bg-white/5 px-3 py-2 text-sm">
+                      <span>{label}</span>
+                      <Chip size="small" color={["complete", "pass", "approve"].includes(String(value)) ? "success" : String(value) === "not_started" || String(value) === "pending" ? "default" : "warning"} label={formatStatus(String(value))} />
+                    </div>
+                  ))}
+                </Stack>
+              </aside>
+
+              <main className="bg-slate-950">
+                <div className="border-b border-white/10 p-5">
+                  <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-200">Command Workspace</p>
+                      <Typography variant="h5" fontWeight={900}>Evidence, AI, GIS and approval intelligence</Typography>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                        A single verification console for evidence package intake, AI ownership checks, spatial review, MRV controls and regulatory decisioning.
+                      </p>
+                    </div>
+                    <div className="grid min-w-[320px] grid-cols-3 gap-2">
+                      {[
+                        ["Integrity", verificationCase?.integrity_score ?? "--"],
+                        ["AI", verificationCase?.confidence_score ?? "--"],
+                        ["Risk", verificationCase?.risk_score ?? "--"]
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-md border border-white/10 bg-white/10 p-3">
+                          <span className="text-xs uppercase tracking-wider text-slate-400">{label}</span>
+                          <strong className="mt-1 block text-xl">{value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
+                      <span>Case progress</span>
+                      <span>{verificationProgress}%</span>
+                    </div>
+                    <LinearProgress variant="determinate" value={verificationProgress} sx={{ height: 8, borderRadius: 8 }} />
+                  </div>
+                </div>
+
+                {selectedProject ? (
+                  <div className="grid gap-4 p-5">
+                    <div className="grid gap-4 2xl:grid-cols-[1fr_360px]">
+                      <section className="rounded-md border border-white/10 bg-white p-5 text-slate-900">
+                        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                          <div>
+                            <Typography variant="h6" fontWeight={900}>Evidence Package Intake</Typography>
+                            <p className="text-sm text-slate-600">Drop a ZIP or multiple documents. The system maps categories, stores hashes, and sends evidence to AI review.</p>
+                          </div>
+                          <Chip color={selectedVerificationUploads().length === REQUIRED_VERIFICATION_UPLOADS.length ? "success" : "warning"} label={`${selectedVerificationUploads().length}/${REQUIRED_VERIFICATION_UPLOADS.length} mapped`} />
+                        </div>
+                        <div
+                          className={`mt-4 rounded-md border-2 border-dashed p-6 transition ${isEvidenceDragActive ? "border-sky-500 bg-sky-50" : "border-slate-300 bg-slate-50"}`}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            setIsEvidenceDragActive(true);
+                          }}
+                          onDragLeave={() => setIsEvidenceDragActive(false)}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            setIsEvidenceDragActive(false);
+                            addEvidencePackageFiles(event.dataTransfer.files);
+                          }}
+                        >
+                          <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
+                            <div>
+                              <UploadFileIcon className="text-sky-700" />
+                              <strong className="mt-2 block">Drag evidence package here</strong>
+                              <span className="text-sm text-slate-600">Recommended: one ZIP containing manifest, boundary, MRV, satellite, field and signature evidence.</span>
+                            </div>
+                            <Button variant="contained" component="label" startIcon={<UploadFileIcon />}>
+                              Select Files
+                              <input hidden type="file" multiple accept=".zip,.geojson,.json,.kml,.shp,.pdf,.doc,.docx,.xlsx,.xls,.csv,.tif,.tiff,.jpg,.jpeg,.png,.sig,.pem,.p7s,.txt" onChange={(event) => event.target.files && addEvidencePackageFiles(event.target.files)} />
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="mt-4 grid gap-2 md:grid-cols-2">
+                          {(packageValidations.length ? packageValidations : []).map((item) => (
+                            <div key={`${item.file.name}-${item.file.lastModified}`} className="rounded-md border bg-white p-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <strong className="block text-sm">{item.file.name}</strong>
+                                  <span className="text-xs text-slate-500">{item.group} - {formatStatus(item.category)} - {Math.ceil(item.file.size / 1024)} KB</span>
+                                </div>
+                                <Chip size="small" color={item.formatStatus === "valid" ? "success" : "warning"} label={formatStatus(item.formatStatus)} />
+                              </div>
+                            </div>
+                          ))}
+                          {packageValidations.length === 0 && <Alert severity="info">No local package selected. Use the test ZIPs in `test-evidence-packages`.</Alert>}
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {verificationCase?.evidence_complete ? (
+                            <Chip color="success" icon={<LockIcon />} label="Evidence uploaded and locked" />
+                          ) : (
+                            <Button variant="contained" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("evidence")}>Upload Evidence Package</Button>
+                          )}
+                          <Button variant="outlined" disabled={evidencePackageFiles.length === 0} onClick={() => setEvidencePackageFiles([])}>Clear Package</Button>
+                        </div>
+                      </section>
+
+                      <section className="rounded-md border border-white/10 bg-white p-5 text-slate-900">
+                        <Typography variant="h6" fontWeight={900}>Evidence Checklist</Typography>
+                        <Stack spacing={1.1} className="mt-3">
+                          {EVIDENCE_GROUPS.map((group) => {
+                            const groupCategories = REQUIRED_VERIFICATION_UPLOADS.filter((item) => CATEGORY_GROUP[item.category] === group);
+                            const completed = groupCategories.filter((item) => selectedUploadCategories.has(item.category) || uploadedCategories.has(item.category)).length;
+                            return (
+                              <div key={group} className="rounded-md border p-3">
+                                <div className="flex items-center justify-between">
+                                  <strong className="text-sm">{group}</strong>
+                                  <Chip size="small" color={completed === groupCategories.length ? "success" : completed > 0 ? "warning" : "default"} label={`${completed}/${groupCategories.length}`} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </Stack>
+                      </section>
+                    </div>
+
+                    <div className="grid gap-4 2xl:grid-cols-[1fr_420px]">
+                      <section className="rounded-md border border-white/10 bg-white p-5 text-slate-900">
+                        <div className="flex items-center justify-between gap-3">
+                          <Typography variant="h6" fontWeight={900}>AI Evidence Intelligence</Typography>
+                          <Chip color={verificationCase?.ai_status === "pass" ? "success" : verificationCase?.ai_status === "not_started" ? "default" : "warning"} label={formatStatus(verificationCase?.ai_status ?? "not started")} />
+                        </div>
+                        <div className="mt-4 grid gap-3">
+                          {aiDocumentChecks.length === 0 ? (
+                            <Alert severity="info">Run AI Assessment to check manifest ownership, project-code evidence, format risk, hashes and signatures.</Alert>
+                          ) : (
+                            aiDocumentChecks.slice(0, 8).map((check) => (
+                              <div key={`${check.file_name}-${check.category}`} className="grid gap-3 rounded-md border bg-slate-50 p-3 md:grid-cols-[1fr_auto]">
+                                <div>
+                                  <strong className="block text-sm">{String(check.file_name)}</strong>
+                                  <span className="text-xs text-slate-600">{formatStatus(String(check.category))} - manifest {String(check.manifest_project_code ?? "not detected")} - signature {String(check.signature_status)}</span>
+                                </div>
+                                <Chip size="small" color={String(check.ownership_status) === "matched" ? "success" : "warning"} label={formatStatus(String(check.ownership_status ?? "pending"))} />
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </section>
+
+                      <section className="overflow-hidden rounded-md border border-white/10 bg-slate-900 text-white">
+                        <div className="border-b border-white/10 p-4">
+                          <div className="flex items-center justify-between">
+                            <Typography variant="h6" fontWeight={900}>GIS Snapshot</Typography>
+                            <Chip size="small" color={verificationCase?.gis_status === "approve" ? "success" : "warning"} label={formatStatus(verificationCase?.gis_status ?? "not started")} />
+                          </div>
+                        </div>
+                        <div className="relative h-64 bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_38%,#14532d_100%)]">
+                          <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.12)_1px,transparent_1px)] [background-size:30px_30px]" />
+                          <div className="absolute left-[22%] top-[20%] h-36 w-56 rotate-[-10deg] rounded-[28%] border-4 border-emerald-300 bg-emerald-400/20 shadow-[0_0_48px_rgba(52,211,153,0.45)]" />
+                          <div className="absolute right-[20%] top-[28%] h-4 w-4 rounded-full bg-amber-300 shadow-[0_0_24px_rgba(252,211,77,0.9)]" />
+                          <div className="absolute bottom-4 left-4 rounded bg-black/60 px-3 py-2 text-xs">Forest {gisAssessment?.forest_cover_percent ?? "--"}%</div>
+                          <div className="absolute bottom-4 right-4 rounded bg-black/60 px-3 py-2 text-xs">Fire {gisAssessment?.fire_risk_level ?? "pending"}</div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 p-3 text-xs">
+                          {["Boundary", "Satellite", "Carbon"].map((layer) => <div key={layer} className="rounded bg-white/10 p-2">{layer} on</div>)}
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : (
+                  <Alert className="m-5" severity="info">Select or register a project before opening a verification case.</Alert>
+                )}
+              </main>
+
+              <aside className="border-l border-white/10 bg-slate-900 p-4">
+                <Typography variant="subtitle1" fontWeight={900}>Decision Queue</Typography>
+                <div className="mt-3 grid gap-3">
+                  {[
+                    ["automatic", "Automatic Validation", verificationCase?.automatic_validation_status ?? "not_started", () => runVerificationStep("automatic")],
+                    ["ai", "AI Assessment", verificationCase?.ai_status ?? "not_started", () => runVerificationStep("ai")],
+                    ["gis", "GIS Review", verificationCase?.gis_status ?? "not_started", () => runVerificationStep("gis")],
+                    ["mrv", "MRV Review", verificationCase?.mrv_status ?? "not_started", () => runVerificationStep("mrv")],
+                    ["verifier", "Verifier Review", verificationCase?.verifier_status ?? "not_started", () => runVerificationStep("verifier")],
+                    ["zicma", "ZiCMA Approval", verificationCase?.zicma_status ?? "not_started", () => runVerificationStep("zicma")]
+                  ].map(([step, title, statusValue, action]) => (
+                    <div key={String(step)} className="rounded-md border border-white/10 bg-white/5 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <strong className="text-sm">{String(title)}</strong>
+                        <Chip size="small" color={["pass", "approve"].includes(String(statusValue)) ? "success" : String(statusValue) === "not_started" ? "default" : "warning"} label={formatStatus(String(statusValue))} />
+                      </div>
+                      {isVerificationStepComplete(step as "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") ? (
+                        <Chip className="mt-3" color="success" icon={<LockIcon />} label="Locked" />
+                      ) : (
+                        <Button className="mt-3" fullWidth variant="outlined" disabled={isLoading || !verificationCase} onClick={action as () => void}>Run</Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <Divider className="my-5 border-white/10" />
+                <Typography variant="subtitle1" fontWeight={900}>Final Actions</Typography>
+                <Stack spacing={1.2} className="mt-3">
+                  {verificationCase?.status === "rejected" ? (
+                    <Chip color="error" icon={<LockIcon />} label="Rejected" />
+                  ) : (
+                    <Button variant="outlined" color="error" disabled={isLoading || !verificationCase || verificationCase?.zicma_status === "approve"} onClick={rejectVerificationCase}>Reject</Button>
+                  )}
+                  {verificationCase?.zicma_status === "approve" ? (
+                    <Chip color="success" icon={<LockIcon />} label="Approved" />
+                  ) : (
+                    <Button variant="contained" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("zicma")}>Approve</Button>
+                  )}
+                  {selectedProject?.status === "credits_issued" ? (
+                    <Chip color="success" icon={<LockIcon />} label="Credits issued" />
+                  ) : (
+                    <Button variant="contained" color="success" startIcon={<FactCheckIcon />} onClick={issueCredits} disabled={isLoading || verificationCase?.zicma_status !== "approve"}>Issue Credits</Button>
+                  )}
+                </Stack>
+
+                <Divider className="my-5 border-white/10" />
+                <Typography variant="subtitle1" fontWeight={900}>Audit Stream</Typography>
+                <Stack spacing={1.2} className="mt-3 max-h-[360px] overflow-auto pr-1">
+                  {auditEvents.slice(0, 8).map((event) => (
+                    <div key={event.id} className="rounded-md border border-white/10 bg-white/5 p-3">
+                      <strong className="block text-xs">{event.event_type}</strong>
+                      <span className="text-xs text-slate-300">{event.action} - {event.outcome}</span>
+                      <p className="mt-1 text-[11px] text-slate-400">{new Date(event.created_at).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </Stack>
+              </aside>
+            </div>
+          </Paper>
+        </div>
+      ) : activeTab === "verification_old" ? (
         <div className="grid gap-6">
           <Paper elevation={0} className="workspace-panel border p-6">
             <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">

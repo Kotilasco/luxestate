@@ -82,9 +82,9 @@ async def analyze_verification(request: VerificationAnalysisRequest) -> Verifica
         unsigned += 0 if signature_present else 1
 
         if not content_match:
-            risk_points += 8
+            risk_points += 2 if not missing_categories else 8
         if format_status != "valid":
-            risk_points += 4
+            risk_points += 2
         if not signature_present:
             risk_points += 6
 
@@ -109,8 +109,10 @@ async def analyze_verification(request: VerificationAnalysisRequest) -> Verifica
     risk_score = min(Decimal(risk_points), Decimal("99.00"))
     confidence = max(Decimal("100.00") - risk_score, Decimal("1.00"))
     status = "pass" if risk_score < Decimal("30") and not missing_categories else "warning"
-    if risk_score >= Decimal("70") or len(missing_categories) > 4:
+    if len(missing_categories) > 4:
         status = "fail"
+    elif missing_categories or unsigned:
+        status = "warning"
 
     findings = [
         f"AI model verified {len(files)} evidence file record(s) against project {project_code}.",
