@@ -1,10 +1,14 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from hashlib import sha256
+from io import BytesIO
+import json
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
+from zipfile import BadZipFile, ZipFile
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 
 from app.api.dependencies import get_audit_reader, get_audit_writer, get_credit_batch_repository, get_project_repository
@@ -34,6 +38,7 @@ from app.application.dto import (
 )
 from app.application.ports import AuditReader, AuditWriter, CarbonProjectRepository, CreditBatchRepository
 from app.application.queries.get_projects import GetCarbonProjectQuery, ListCarbonProjectsQuery
+from app.config import get_settings
 from app.domain.entities.carbon_project import ProjectStatus
 from app.infrastructure.security.current_user import CurrentUser, get_current_user
 
@@ -153,6 +158,88 @@ def _hash_file(project_id: UUID, verification_id: str, file_name: str, signature
 
 def _safe_file_name(file_name: str) -> str:
     return "".join(character if character.isalnum() or character in {".", "-", "_"} else "_" for character in file_name)
+
+
+def _extract_zip_metadata(content: bytes) -> dict[str, object] | None:
+    try:
+        with ZipFile(BytesIO(content)) as archive:
+            names = [name for name in archive.namelist() if not name.endswith("/")]
+            manifest: dict[str, object] | None = None
+            manifest_name = next((name for name in names if Path(name).name.lower() == "00_manifest.json"), None)
+            if manifest_name:
+                with archive.open(manifest_name) as manifest_file:
+                    manifest = json.loads(manifest_file.read().decode("utf-8"))
+            return {
+                "manifest": manifest,
+                "file_count": len(names),
+                "file_inventory": names[:80],
+                "contains_manifest": manifest is not None,
+            }
+    except (BadZipFile, UnicodeDecodeError, json.JSONDecodeError):
+        return {
+            "manifest": None,
+            "file_count": 0,
+            "file_inventory": [],
+            "contains_manifest": False,
+            "zip_error": "zip package could not be inspected",
+        }
+
+
+def _content_contains_project_code(content: bytes, project_code: str) -> bool:
+    sample = content[:250000].decode("utf-8", errors="ignore").upper()
+    return project_code.upper() in sample
+
+
+def _latest_evidence_files(events: list[object]) -> list[dict[str, object]]:
+    for event in events:
+        if getattr(event, "event_type", "") in {"verification.evidence_files.uploaded", "verification.evidence_package.uploaded"}:
+            metadata = _event_metadata(event)
+            files = metadata.get("files", [])
+            return files if isinstance(files, list) else []
+    return []
+
+
+async def _run_ai_model(project: object, case: VerificationCaseResponse, evidence_files: list[dict[str, object]]) -> dict[str, object]:
+    settings = get_settings()
+    profile = DISTRICT_GIS_PROFILES.get(project.district.lower(), DEFAULT_GIS_PROFILE)
+    payload = {
+        "project": {
+            "id": str(project.id),
+            "project_code": project.project_code,
+            "title": project.title,
+            "district": project.district,
+            "province": project.province,
+            "estimated_annual_tco2e": str(project.estimated_annual_tco2e),
+            "methodology": project.methodology,
+        },
+        "verification_case": case.model_dump(mode="json"),
+        "evidence_files": evidence_files,
+        "gis_profile": {
+            "forest_cover": str(profile["forest_cover"]),
+            "carbon_density": str(profile["carbon_density"]),
+            "fire_risk": profile["fire_risk"],
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.post(f"{settings.ai_model_url}/v1/verification/analyze", json=payload)
+            response.raise_for_status()
+            return response.json()
+    except (httpx.HTTPError, ValueError):
+        missing = sorted(REQUIRED_EVIDENCE_CATEGORIES - {str(file.get("category")) for file in evidence_files})
+        risk_score = Decimal("52.00") if missing else Decimal("24.00")
+        return {
+            "model_version": "zai-local-fallback-verification-model-1.0",
+            "status": "warning" if missing else "pass",
+            "confidence_score": str(Decimal("100.00") - risk_score),
+            "risk_score": str(risk_score),
+            "findings": [
+                "AI model service was unavailable; deterministic fallback controls were applied.",
+                f"Evidence category coverage: {len(REQUIRED_EVIDENCE_CATEGORIES) - len(missing)}/{len(REQUIRED_EVIDENCE_CATEGORIES)}.",
+            ],
+            "required_actions": ["Restore AI model service and rerun AI validation."] if missing else ["Human verifier must review fallback explainability before approval."],
+            "document_checks": [],
+        }
 
 
 def _latest_verification_events(events: list[object]) -> list[object]:
@@ -589,6 +676,10 @@ async def upload_verification_evidence_files(
         safe_name = _safe_file_name(upload.filename or f"{category}-{index}")
         extension = Path(safe_name).suffix.lower()
         format_status = "valid" if extension in ALLOWED_EVIDENCE_EXTENSIONS[category] else "requires_review"
+        zip_metadata = _extract_zip_metadata(content) if extension == ".zip" else None
+        manifest = zip_metadata.get("manifest") if isinstance(zip_metadata, dict) else None
+        manifest_project_code = str(manifest.get("project_code", "")) if isinstance(manifest, dict) else ""
+        project_code_detected = _content_contains_project_code(content, project.project_code) or manifest_project_code.upper() == project.project_code.upper()
         validation_findings = [
             "SHA256 content digest calculated.",
             "File stored in immutable evidence package directory.",
@@ -598,6 +689,9 @@ async def upload_verification_evidence_files(
             validation_findings.append("File extension matches accepted formats for the assigned evidence category.")
         else:
             validation_findings.append("File extension does not match the preferred format list and requires reviewer confirmation.")
+        if zip_metadata:
+            validation_findings.append(f"ZIP package inspected with {zip_metadata.get('file_count', 0)} contained file(s).")
+        validation_findings.append("Project code marker detected." if project_code_detected else "Project code marker was not detected in inspected content.")
         stored_name = f"{digest[:16]}-{safe_name}"
         stored_path = storage_dir / stored_name
         stored_path.write_bytes(content)
@@ -613,6 +707,9 @@ async def upload_verification_evidence_files(
                 "sha256": digest,
                 "format_status": format_status,
                 "metadata_extracted": True,
+                "project_code_detected": project_code_detected,
+                "manifest_project_code": manifest_project_code or None,
+                "zip_metadata": zip_metadata,
                 "validation_findings": validation_findings,
                 "version": 1,
                 "uploaded_at": now.isoformat(),
@@ -718,26 +815,24 @@ async def run_verification_ai_assessment(
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
-    case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    events = await audit_reader.list_for_resource("carbon_project", project.id, 100)
+    case = _build_verification_case(project.id, events)
     if case is None or case.automatic_validation_status == "not_started":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Automatic validation is required before AI assessment.")
 
-    risk_score = Decimal("18.50") if project.estimated_annual_tco2e <= Decimal("100000") else Decimal("42.00")
-    confidence_score = Decimal("91.00") if risk_score < Decimal("30") else Decimal("84.00")
-    status_value = "pass" if risk_score < Decimal("30") else "warning"
+    evidence_files = _latest_evidence_files(events)
+    model_result = await _run_ai_model(project, case, evidence_files)
+    risk_score = Decimal(str(model_result.get("risk_score", "50.00")))
+    confidence_score = Decimal(str(model_result.get("confidence_score", "50.00")))
+    status_value = str(model_result.get("status", "warning"))
     response = VerificationAssessmentResponse(
         verification_id=case.verification_id,
         stage="ai_review",
         status=status_value,
         risk_score=risk_score,
         confidence_score=confidence_score,
-        findings=[
-            "Boundary duplicate risk screened.",
-            "Satellite evidence screened for deforestation and fire scars.",
-            "Carbon calculations compared against expected sequestration bands.",
-            "Fraud indicators screened for copied reports and repeated satellite scenes.",
-        ],
-        required_actions=["Human verifier must review AI explainability before approval."],
+        findings=list(model_result.get("findings", [])),
+        required_actions=list(model_result.get("required_actions", [])),
         generated_at=datetime.now(tz=UTC),
     )
     await audit_writer.write(
@@ -757,6 +852,10 @@ async def run_verification_ai_assessment(
             "risk_score": str(risk_score),
             "confidence_score": str(confidence_score),
             "findings": response.findings,
+            "required_actions": response.required_actions,
+            "model_version": model_result.get("model_version"),
+            "document_checks": model_result.get("document_checks", []),
+            "model_source": get_settings().ai_model_url,
         },
     )
     return response

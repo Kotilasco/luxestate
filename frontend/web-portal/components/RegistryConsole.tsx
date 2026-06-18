@@ -7,12 +7,16 @@ import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import GavelIcon from "@mui/icons-material/Gavel";
+import LayersIcon from "@mui/icons-material/Layers";
+import LockIcon from "@mui/icons-material/Lock";
 import MapIcon from "@mui/icons-material/Map";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SatelliteAltIcon from "@mui/icons-material/SatelliteAlt";
 import SendIcon from "@mui/icons-material/Send";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VerifiedIcon from "@mui/icons-material/Verified";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
   Alert,
   Box,
@@ -302,15 +306,28 @@ export default function RegistryConsole() {
     () => auditEvents.find((event) => event.event_type === "verification.evidence_files.uploaded" || event.event_type === "verification.evidence_package.uploaded"),
     [auditEvents]
   );
+  const latestAiAssessment = useMemo(
+    () => auditEvents.find((event) => event.event_type === "verification.ai_assessment.completed"),
+    [auditEvents]
+  );
   const uploadedEvidenceFiles = useMemo(
     () => (Array.isArray(latestEvidenceUpload?.metadata?.files) ? latestEvidenceUpload.metadata.files : []) as Array<Record<string, unknown>>,
     [latestEvidenceUpload]
+  );
+  const aiDocumentChecks = useMemo(
+    () => (Array.isArray(latestAiAssessment?.metadata?.document_checks) ? latestAiAssessment.metadata.document_checks : []) as Array<Record<string, unknown>>,
+    [latestAiAssessment]
   );
   const verificationProgress = verificationCase
     ? Math.round(((Math.max(0, VERIFICATION_SEQUENCE.indexOf(verificationCase.status)) + 1) / VERIFICATION_SEQUENCE.length) * 100)
     : 0;
   const selectedUploadCategories = new Set(selectedVerificationUploads().map((upload) => upload.category));
   const uploadedCategories = new Set(uploadedEvidenceFiles.map((file) => String(file.category)));
+  const recordedCaseActions = new Set(
+    auditEvents
+      .filter((event) => event.event_type.startsWith("verification.case."))
+      .map((event) => event.action)
+  );
 
   async function loadProjects(preferredProjectId?: string) {
     const [healthResponse, projectResponse] = await Promise.all([
@@ -593,6 +610,34 @@ export default function RegistryConsole() {
     }
   }
 
+  function verificationStepStatus(step: "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") {
+    if (!verificationCase) return "not_started";
+    const statusMap = {
+      automatic: verificationCase.automatic_validation_status,
+      ai: verificationCase.ai_status,
+      gis: verificationCase.gis_status,
+      mrv: verificationCase.mrv_status,
+      verifier: verificationCase.verifier_status,
+      zicma: verificationCase.zicma_status
+    };
+    return statusMap[step];
+  }
+
+  function isVerificationStepComplete(step: "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") {
+    return ["pass", "approve"].includes(verificationStepStatus(step));
+  }
+
+  function caseActionButton(action: VerificationCaseAction, label: string, notes: string) {
+    const recorded = recordedCaseActions.has(action);
+    return recorded ? (
+      <Chip key={action} color="success" icon={<LockIcon />} label={`${label} recorded`} />
+    ) : (
+      <Button key={action} variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction(action, notes)}>
+        {label}
+      </Button>
+    );
+  }
+
   async function runVerificationStep(step: "start" | "evidence" | "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") {
     if (!selectedProject) {
       return;
@@ -738,11 +783,15 @@ export default function RegistryConsole() {
                 </p>
               </div>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("save_draft", "Verification case dashboard draft saved by case operator.")}>Save Draft</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("request_more_information", "Additional project evidence and clarifications requested from the proponent.")}>Request More Information</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("export_verification_report", "Verification report exported with audit references, evidence hashes and reviewer decisions.")}>Export Verification Report</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("digitally_sign", "Case officer digitally signed the current verification case record.")}>Digitally Sign</Button>
-                <Button variant="contained" startIcon={<AssignmentTurnedInIcon />} disabled={isLoading || !selectedProject} onClick={() => runVerificationStep("start")}>Start Case</Button>
+                {caseActionButton("save_draft", "Save Draft", "Verification case dashboard draft saved by case operator.")}
+                {caseActionButton("request_more_information", "Request More Information", "Additional project evidence and clarifications requested from the proponent.")}
+                {caseActionButton("export_verification_report", "Export Verification Report", "Verification report exported with audit references, evidence hashes and reviewer decisions.")}
+                {caseActionButton("digitally_sign", "Digitally Sign", "Case officer digitally signed the current verification case record.")}
+                {verificationCase ? (
+                  <Chip color="success" icon={<LockIcon />} label="Case started" />
+                ) : (
+                  <Button variant="contained" startIcon={<AssignmentTurnedInIcon />} disabled={isLoading || !selectedProject} onClick={() => runVerificationStep("start")}>Start Case</Button>
+                )}
               </Stack>
             </div>
           </Paper>
@@ -874,7 +923,11 @@ export default function RegistryConsole() {
                   </div>
                 </div>
                 <div className="mt-5 flex flex-wrap gap-2">
-                  <Button variant="contained" startIcon={<UploadFileIcon />} disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("evidence")}>Upload Evidence Package</Button>
+                  {verificationCase?.evidence_complete ? (
+                    <Chip color="success" icon={<LockIcon />} label="Evidence package uploaded" />
+                  ) : (
+                    <Button variant="contained" startIcon={<UploadFileIcon />} disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("evidence")}>Upload Evidence Package</Button>
+                  )}
                   <Button variant="outlined" disabled={evidencePackageFiles.length === 0} onClick={() => setEvidencePackageFiles([])}>Clear Package</Button>
                 </div>
               </Paper>
@@ -900,47 +953,142 @@ export default function RegistryConsole() {
                       ))
                     )}
                   </div>
+                  <Divider className="my-5" />
+                  <div className="flex items-center justify-between gap-3">
+                    <Typography variant="subtitle1" fontWeight={900}>AI Document Ownership Checks</Typography>
+                    <Chip
+                      size="small"
+                      color={verificationCase?.ai_status === "pass" ? "success" : verificationCase?.ai_status === "not_started" ? "default" : "warning"}
+                      label={formatStatus(verificationCase?.ai_status ?? "not started")}
+                    />
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {aiDocumentChecks.length === 0 ? (
+                      <Alert severity="info">Run AI Assessment after upload to verify project-code ownership, manifest consistency, format risk and signatures.</Alert>
+                    ) : (
+                      aiDocumentChecks.map((check) => (
+                        <div key={`${check.file_name}-${check.category}`} className="rounded-md border bg-slate-50 p-3">
+                          <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
+                            <div>
+                              <strong className="block text-sm text-zai-ink">{String(check.file_name)}</strong>
+                              <span className="text-xs text-slate-600">
+                                {formatStatus(String(check.category))} - manifest: {String(check.manifest_project_code ?? "not detected")} - signature: {String(check.signature_status)}
+                              </span>
+                              <p className="mt-1 break-all text-xs text-slate-500">SHA256: {String(check.sha256 ?? "pending")}</p>
+                            </div>
+                            <Chip
+                              size="small"
+                              color={String(check.ownership_status) === "matched" ? "success" : "warning"}
+                              label={formatStatus(String(check.ownership_status ?? "pending"))}
+                            />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </Paper>
 
                 <Paper elevation={0} className="workspace-panel border p-6">
-                  <Typography variant="h6" fontWeight={900}>Interactive GIS Review</Typography>
-                  <div className="mt-4 overflow-hidden rounded-lg border bg-slate-950 text-white">
-                    <div className="relative h-72 bg-[radial-gradient(circle_at_30%_30%,#166534_0,#14532d_28%,#0f172a_65%)]">
-                      <div className="absolute left-[18%] top-[22%] h-32 w-52 rotate-[-8deg] rounded-[32%] border-4 border-emerald-300 bg-emerald-500/20 shadow-[0_0_40px_rgba(110,231,183,0.35)]" />
-                      <div className="absolute right-8 top-6 rounded bg-sky-500/90 px-2 py-1 text-xs font-bold">Satellite imagery</div>
-                      <div className="absolute bottom-6 left-6 rounded bg-emerald-500/90 px-2 py-1 text-xs font-bold">Forest cover {gisAssessment?.forest_cover_percent ?? "76.10"}%</div>
-                      <div className="absolute bottom-16 right-10 rounded bg-amber-500/90 px-2 py-1 text-xs font-bold">Fire alerts {gisAssessment?.fire_risk_level ?? "low"}</div>
-                      <div className="absolute right-8 top-24 rounded bg-violet-500/90 px-2 py-1 text-xs font-bold">Carbon density {gisAssessment?.carbon_density_tco2e_per_hectare ?? "240.00"}</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <Typography variant="h6" fontWeight={900}>GIS Command Map</Typography>
+                      <p className="mt-1 text-sm text-slate-600">Spatial review workspace for boundary, imagery, forest cover, carbon density and active risk alerts.</p>
                     </div>
-                    <div className="grid gap-2 border-t border-white/10 p-4 text-xs sm:grid-cols-2">
-                      {["Project boundary", "Satellite scene", "Forest cover", "Fire alerts", "Carbon density", "MRV field plots"].map((layer) => (
-                        <div key={layer} className="flex items-center justify-between rounded bg-white/10 px-3 py-2">
-                          <span>{layer}</span>
-                          <Chip size="small" color="success" label="on" />
+                    <Chip color={verificationCase?.gis_status === "approve" ? "success" : "warning"} label={formatStatus(verificationCase?.gis_status ?? "not started")} />
+                  </div>
+                  <div className="mt-4 grid overflow-hidden rounded-lg border bg-slate-950 text-white lg:grid-cols-[160px_1fr]">
+                    <div className="border-r border-white/10 bg-slate-900 p-3">
+                      <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-300">
+                        <LayersIcon fontSize="small" /> Layers
+                      </div>
+                      {[
+                        ["Boundary", "100%"],
+                        ["Sentinel-2", "92%"],
+                        ["Forest Cover", `${gisAssessment?.forest_cover_percent ?? "42.00"}%`],
+                        ["Fire Alerts", gisAssessment?.fire_risk_level ?? "medium"],
+                        ["Carbon Density", gisAssessment?.carbon_density_tco2e_per_hectare ?? "96.50"],
+                        ["MRV Plots", "18"]
+                      ].map(([layer, value]) => (
+                        <div key={layer} className="mb-2 rounded bg-white/10 p-2">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span>{layer}</span>
+                            <span className="text-sky-200">{value}</span>
+                          </div>
+                          <LinearProgress variant="determinate" value={layer === "Fire Alerts" ? 55 : 92} sx={{ height: 4, borderRadius: 4, mt: 1 }} />
                         </div>
                       ))}
                     </div>
+                    <div>
+                      <div className="relative h-80 overflow-hidden bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_38%,#14532d_100%)]">
+                        <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.12)_1px,transparent_1px)] [background-size:32px_32px]" />
+                        <div className="absolute left-[22%] top-[18%] h-44 w-64 rotate-[-10deg] rounded-[28%] border-4 border-emerald-300 bg-emerald-400/20 shadow-[0_0_48px_rgba(52,211,153,0.45)]" />
+                        <div className="absolute left-[32%] top-[28%] h-16 w-28 rotate-[-8deg] rounded-full bg-lime-300/30 blur-sm" />
+                        <div className="absolute right-[18%] top-[24%] h-4 w-4 rounded-full bg-amber-300 shadow-[0_0_24px_rgba(252,211,77,0.9)]" />
+                        <div className="absolute right-[28%] bottom-[30%] h-3 w-3 rounded-full bg-red-400 shadow-[0_0_22px_rgba(248,113,113,0.9)]" />
+                        <div className="absolute left-4 top-4 rounded bg-black/60 px-3 py-2 text-xs">
+                          <SatelliteAltIcon fontSize="small" /> Sentinel-2 / Landsat composite
+                        </div>
+                        <div className="absolute bottom-4 left-4 grid gap-2 text-xs">
+                          <span className="rounded bg-emerald-500/90 px-2 py-1">Boundary confidence: high</span>
+                          <span className="rounded bg-violet-500/90 px-2 py-1">Carbon density overlay active</span>
+                        </div>
+                        <div className="absolute bottom-4 right-4 rounded bg-black/60 p-3 text-xs">
+                          <div>Lat {gisAssessment?.centroid_latitude ?? "-19.0154"}</div>
+                          <div>Lng {gisAssessment?.centroid_longitude ?? "29.1549"}</div>
+                          <div>Area {gisAssessment?.estimated_area_hectares ?? "0.0000"} ha</div>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 border-t border-white/10 p-4 text-xs sm:grid-cols-3">
+                        {[
+                          ["Boundary", gisAssessment?.boundary_validation_status ?? "pending"],
+                          ["Forest cover", `${gisAssessment?.forest_cover_percent ?? "42.00"}%`],
+                          ["Fire risk", gisAssessment?.fire_risk_level ?? "medium"],
+                          ["Carbon density", gisAssessment?.carbon_density_tco2e_per_hectare ?? "96.50"],
+                          ["Satellite scenes", "2 active"],
+                          ["MRV plots", "18 sampled"]
+                        ].map(([metric, value]) => (
+                          <div key={metric} className="rounded bg-white/10 p-3">
+                            <span className="block text-slate-300">{metric}</span>
+                            <strong>{value}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <Button className="mt-4" variant="outlined" startIcon={<MapIcon />} onClick={runSelectedGisAssessment} disabled={isLoading || !selectedProject}>Refresh GIS Layers</Button>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <Alert icon={<WarningAmberIcon />} severity={gisAssessment?.fire_risk_level === "high" ? "warning" : "info"}>
+                      Fire alert review is based on FIRMS-style active alert layers and requires verifier confirmation before GIS approval.
+                    </Alert>
+                    <Alert severity="success">
+                      Boundary, forest cover and carbon density overlays are auditable GIS review inputs for the verification case.
+                    </Alert>
+                  </div>
+                  <Button className="mt-4" variant="outlined" startIcon={<MapIcon />} onClick={runSelectedGisAssessment} disabled={isLoading || !selectedProject || verificationCase?.gis_status === "approve"}>
+                    {verificationCase?.gis_status === "approve" ? "GIS Review Locked" : "Run GIS Layer Analysis"}
+                  </Button>
                 </Paper>
               </div>
 
               <div className="grid gap-4 xl:grid-cols-3">
                 {[
-                  ["Automatic Validation", verificationCase?.automatic_validation_status ?? "not_started", "Rules engine checks completeness, dates, formats, duplicate files and package integrity.", () => runVerificationStep("automatic")],
-                  ["AI Assessment", verificationCase?.ai_status ?? "not_started", "AI evaluates anomaly risk, consistency, fraud indicators and confidence for human verification.", () => runVerificationStep("ai")],
-                  ["GIS Review", verificationCase?.gis_status ?? "not_started", "Spatial reviewer validates boundary, satellite layers, forest cover, fire alerts and carbon density.", () => runVerificationStep("gis")],
-                  ["MRV Review", verificationCase?.mrv_status ?? "not_started", "MRV reviewer checks monitoring report, baseline, leakage, permanence and carbon calculations.", () => runVerificationStep("mrv")],
-                  ["Verifier Review", verificationCase?.verifier_status ?? "not_started", "Accredited verifier records independent assurance and signs the verification statement.", () => runVerificationStep("verifier")],
-                  ["ZiCMA Approval", verificationCase?.zicma_status ?? "not_started", "Regulator performs final approval and authorizes registry status update.", () => runVerificationStep("zicma")]
-                ].map(([title, statusValue, description, action]) => (
+                  ["automatic", "Automatic Validation", verificationCase?.automatic_validation_status ?? "not_started", "Rules engine checks completeness, dates, formats, duplicate files and package integrity.", () => runVerificationStep("automatic")],
+                  ["ai", "AI Assessment", verificationCase?.ai_status ?? "not_started", "Local Docker AI model checks document ownership, manifest consistency, hashes, signatures, GIS risk and anomaly confidence.", () => runVerificationStep("ai")],
+                  ["gis", "GIS Review", verificationCase?.gis_status ?? "not_started", "Spatial reviewer validates boundary, satellite layers, forest cover, fire alerts and carbon density.", () => runVerificationStep("gis")],
+                  ["mrv", "MRV Review", verificationCase?.mrv_status ?? "not_started", "MRV reviewer checks monitoring report, baseline, leakage, permanence and carbon calculations.", () => runVerificationStep("mrv")],
+                  ["verifier", "Verifier Review", verificationCase?.verifier_status ?? "not_started", "Accredited verifier records independent assurance and signs the verification statement.", () => runVerificationStep("verifier")],
+                  ["zicma", "ZiCMA Approval", verificationCase?.zicma_status ?? "not_started", "Regulator performs final approval and authorizes registry status update.", () => runVerificationStep("zicma")]
+                ].map(([step, title, statusValue, description, action]) => (
                   <Paper key={String(title)} elevation={0} className="border p-5">
                     <div className="flex items-center justify-between gap-3">
                       <Typography variant="subtitle1" fontWeight={900}>{String(title)}</Typography>
                       <Chip size="small" color={String(statusValue) === "pass" || String(statusValue) === "approve" ? "success" : String(statusValue) === "not_started" ? "default" : "warning"} label={formatStatus(String(statusValue))} />
                     </div>
                     <p className="mt-3 min-h-16 text-sm leading-6 text-slate-600">{String(description)}</p>
-                    <Button className="mt-4" variant="outlined" disabled={isLoading || !verificationCase} onClick={action as () => void}>Run Step</Button>
+                    {isVerificationStepComplete(step as "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") ? (
+                      <Chip className="mt-4" color="success" icon={<LockIcon />} label="Completed and locked" />
+                    ) : (
+                      <Button className="mt-4" variant="outlined" disabled={isLoading || !verificationCase} onClick={action as () => void}>Run Step</Button>
+                    )}
                   </Paper>
                 ))}
               </div>
@@ -949,9 +1097,21 @@ export default function RegistryConsole() {
                 <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
                   <Typography variant="h6" fontWeight={900}>Audit Timeline</Typography>
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    <Button variant="outlined" color="error" disabled={isLoading || !verificationCase} onClick={rejectVerificationCase}>Reject</Button>
-                    <Button variant="contained" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("zicma")}>Approve</Button>
-                    <Button variant="contained" color="success" startIcon={<FactCheckIcon />} onClick={issueCredits} disabled={isLoading || verificationCase?.zicma_status !== "approve"}>Issue Credits</Button>
+                    {verificationCase?.status === "rejected" ? (
+                      <Chip color="error" icon={<LockIcon />} label="Rejected" />
+                    ) : (
+                      <Button variant="outlined" color="error" disabled={isLoading || !verificationCase || verificationCase?.zicma_status === "approve"} onClick={rejectVerificationCase}>Reject</Button>
+                    )}
+                    {verificationCase?.zicma_status === "approve" ? (
+                      <Chip color="success" icon={<LockIcon />} label="Approved" />
+                    ) : (
+                      <Button variant="contained" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("zicma")}>Approve</Button>
+                    )}
+                    {selectedProject.status === "credits_issued" ? (
+                      <Chip color="success" icon={<LockIcon />} label="Credits issued" />
+                    ) : (
+                      <Button variant="contained" color="success" startIcon={<FactCheckIcon />} onClick={issueCredits} disabled={isLoading || verificationCase?.zicma_status !== "approve"}>Issue Credits</Button>
+                    )}
                   </Stack>
                 </div>
                 <div className="mt-5 grid gap-3">

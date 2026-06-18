@@ -42,6 +42,10 @@ export type AuditEvent = {
   created_at: string;
 };
 
+type RawAuditEvent = AuditEvent & {
+  metadata_?: Record<string, unknown>;
+};
+
 export type GisLayer = {
   name: string;
   status: string;
@@ -280,7 +284,11 @@ export async function listAuditEvents(projectId: string): Promise<AuditEvent[]> 
   if (!response.ok) {
     throw new Error(`Audit event list failed with ${response.status}`);
   }
-  return response.json();
+  const events = (await response.json()) as RawAuditEvent[];
+  return events.map((event) => ({
+    ...event,
+    metadata: event.metadata ?? event.metadata_ ?? {}
+  }));
 }
 
 export async function runGisAssessment(projectId: string): Promise<GisAssessment> {

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     jwt_issuer: AnyUrl | None = Field(default=None, alias="JWT_ISSUER")
     jwt_audience: str = Field(default="zai-cts-api", alias="JWT_AUDIENCE")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    ai_model_url: str = Field(default="http://localhost:8201", alias="AI_MODEL_URL")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

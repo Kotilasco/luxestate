@@ -35,11 +35,18 @@ services:
       DATABASE_URL: postgresql+asyncpg://zai_cts:zai_cts@postgres:5432/zai_cts
       SERVICE_NAME: carbon-registry-service
       ENVIRONMENT: local
+      AI_MODEL_URL: http://ai-verification-service:8201
     depends_on:
       postgres:
         condition: service_healthy
+      ai-verification-service:
+        condition: service_started
     ports:
       - "8101:8101"
+
+  ai-verification-service:
+    build:
+      context: ../../ai/verification-service
 
   api-gateway:
     build:
