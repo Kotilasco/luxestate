@@ -221,6 +221,46 @@ export type NationalReadiness = {
   stages: NationalStage[];
 };
 
+export type NationalOperationRecord = {
+  id: string;
+  operation_type: string;
+  status: string;
+  title: string;
+  stage: number;
+  owner: string;
+  controls: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type NationalOperations = {
+  generated_at: string;
+  stage_completion: Array<{
+    stage: number;
+    name: string;
+    required_controls: string[];
+    completed_controls: number;
+    completion_percent: number;
+    status: string;
+  }>;
+  registry_accounts: NationalOperationRecord[];
+  methodologies: NationalOperationRecord[];
+  accreditations: NationalOperationRecord[];
+  article6_authorizations: NationalOperationRecord[];
+  marketplace_controls: NationalOperationRecord[];
+  compliance_cases: NationalOperationRecord[];
+  accounting_snapshots: NationalOperationRecord[];
+  stage_decisions: NationalOperationRecord[];
+  audit_timeline: NationalOperationRecord[];
+};
+
+export type NationalActionResult = {
+  id: string;
+  status: string;
+  message: string;
+  generated_at: string;
+};
+
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8082";
 
 export async function fetchGatewayHealth(): Promise<{ status: string; service: string }> {
@@ -245,6 +285,102 @@ export async function getNationalReadiness(): Promise<NationalReadiness> {
     throw new Error(`National readiness load failed with ${response.status}`);
   }
   return response.json();
+}
+
+export async function getNationalOperations(): Promise<NationalOperations> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/national-operations`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`National operations load failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+async function postNationalOperation(path: string, payload: Record<string, unknown>): Promise<NationalActionResult> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/national-operations${path}`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `National operation failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export function openRegistryAccount() {
+  return postNationalOperation("/accounts/open", {
+    organization_name: "Kariba Forest Carbon Programme Ltd",
+    account_type: "project_developer",
+    kyb_reference: "ZIM-KYB-2026-0001",
+    beneficial_owner_checked: true
+  });
+}
+
+export function approveNationalMethodology() {
+  return postNationalOperation("/methodologies/approve", {
+    code: "ZAI-ARR-001",
+    name: "Zimbabwe Afforestation, Reforestation and Revegetation",
+    standard: "National Carbon Standard aligned to Verra VM0047",
+    version: "1.0",
+    eligibility_rules: ["Zimbabwe land tenure evidence required", "No overlap with protected areas", "MRV plots required"]
+  });
+}
+
+export function grantVerifierAccreditation() {
+  return postNationalOperation("/accreditations/grant", {
+    verifier_name: "Zimbabwe Accredited Verification Pool",
+    scope: "AFOLU, ARR, REDD+ and improved forest management",
+    valid_until: "2027-12-31",
+    conflict_screening_reference: "COI-SCREEN-2026-001"
+  });
+}
+
+export function authorizeArticle6Transfer(projectCode: string) {
+  return postNationalOperation("/article6/authorize", {
+    project_code: projectCode,
+    buyer_country: "Singapore",
+    ndc_sector: "AFOLU",
+    authorized_volume_tco2e: 25000,
+    corresponding_adjustment_required: true
+  });
+}
+
+export function createMarketplaceListingControl(projectCode: string) {
+  return postNationalOperation("/marketplace/list", {
+    project_code: projectCode,
+    vintage_year: 2026,
+    volume_tco2e: 10000,
+    floor_price_usd: 8.5,
+    claims_control: "Buyer claims limited to retired units with public certificate"
+  });
+}
+
+export function openComplianceCase() {
+  return postNationalOperation("/compliance/cases", {
+    subject: "Duplicate boundary and inflated yield surveillance case",
+    risk_type: "fraud_screening",
+    severity: "high",
+    allegation: "Automated controls flagged possible overlap and inconsistent estimated annual tCO2e."
+  });
+}
+
+export function createAccountingSnapshot() {
+  return postNationalOperation("/reporting/snapshots", {
+    reporting_period: "2026",
+    ndc_sector: "AFOLU",
+    issued_tco2e: 50000,
+    retired_tco2e: 12500,
+    authorized_itmo_tco2e: 25000
+  });
+}
+
+export function recordStageDecision(stage: number) {
+  return postNationalOperation("/stages/decision", {
+    stage,
+    decision: "control_passed",
+    notes: `Stage ${stage} minimum operating controls reviewed and marked ready for controlled pilot progression.`
+  });
 }
 
 export async function registerCarbonProject(payload: RegisterCarbonProjectPayload): Promise<CarbonProject> {

@@ -121,3 +121,20 @@ Exit gate:
 ## Current Deployment Position
 
 ZAI-CTS is currently suitable for controlled pilot use only. It should not be declared the official national registry until all stage exit gates above are satisfied and independently audited.
+
+## Implemented Operating Controls
+
+The portal now includes live national operating controls under `National Stages`, `Article 6`, and `Oversight`.
+
+- `GET /api/v1/national-readiness` returns the national maturity model and stage gaps.
+- `GET /api/v1/national-operations` returns auditable control records, stage completion, and the national audit timeline.
+- `POST /api/v1/national-operations/accounts/open` records KYB-backed registry account opening.
+- `POST /api/v1/national-operations/methodologies/approve` records methodology approval and version locking.
+- `POST /api/v1/national-operations/accreditations/grant` records verifier accreditation and conflict screening.
+- `POST /api/v1/national-operations/article6/authorize` records host-country Article 6 authorization.
+- `POST /api/v1/national-operations/marketplace/list` records marketplace listing surveillance controls.
+- `POST /api/v1/national-operations/compliance/cases` opens regulator enforcement cases.
+- `POST /api/v1/national-operations/reporting/snapshots` locks national accounting snapshots.
+- `POST /api/v1/national-operations/stages/decision` records stage control decisions.
+
+All national operating controls are stored through the existing audit writer with actor role, correlation ID, control metadata, timestamps, and immutable timeline reconstruction. This is an operational workflow foundation. Transaction-grade national deployment still requires dedicated persistence models, migrations, legal rule configuration, external identity/KYB integrations, Article 6 registry reconciliation, settlement integrations, and independent security accreditation.

@@ -44,22 +44,32 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   advanceProjectWorkflow,
   AiReview,
+  approveNationalMethodology,
   AuditEvent,
+  authorizeArticle6Transfer,
   CarbonProject,
+  createAccountingSnapshot,
+  createMarketplaceListingControl,
   CreditBatch,
   decideVerificationStage,
   EvidenceRecord,
   fetchGatewayHealth,
+  getNationalOperations,
   getNationalReadiness,
   getVerificationCase,
   GisAssessment,
   GisEvidencePayload,
+  grantVerifierAccreditation,
   issueCreditBatch,
   listAuditEvents,
   listCarbonProjects,
   listCreditBatches,
   listEvidence,
+  NationalOperations,
+  openComplianceCase,
+  openRegistryAccount,
   registerCarbonProject,
+  recordStageDecision,
   recordVerificationCaseAction,
   runAiReview,
   runAutomaticVerification,
@@ -283,6 +293,8 @@ export default function RegistryConsole() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [evidenceRecords, setEvidenceRecords] = useState<EvidenceRecord[]>([]);
   const [nationalReadiness, setNationalReadiness] = useState<NationalReadiness | null>(null);
+  const [nationalOperations, setNationalOperations] = useState<NationalOperations | null>(null);
+  const [nationalActionKey, setNationalActionKey] = useState<string | null>(null);
   const [gisAssessment, setGisAssessment] = useState<GisAssessment | null>(null);
   const [aiReview, setAiReview] = useState<AiReview | null>(null);
   const [verificationCase, setVerificationCase] = useState<VerificationCase | null>(null);
@@ -306,6 +318,11 @@ export default function RegistryConsole() {
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
     [projects, selectedProjectId]
+  );
+  const selectedProjectCode = selectedProject?.project_code ?? "ZAI-260617234151";
+  const nationalOperationTypes = useMemo(
+    () => new Set((nationalOperations?.audit_timeline ?? []).map((record) => record.operation_type)),
+    [nationalOperations]
   );
 
   const activeStep = selectedProject ? statusStep[selectedProject.status] ?? 0 : 0;
@@ -346,8 +363,10 @@ export default function RegistryConsole() {
       listCarbonProjects(),
       getNationalReadiness()
     ]);
+    const operationsResponse = await getNationalOperations();
     setHealth(`${healthResponse.status} (${healthResponse.service})`);
     setNationalReadiness(readinessResponse);
+    setNationalOperations(operationsResponse);
     setProjects(projectResponse);
     const nextSelected = preferredProjectId ?? selectedProjectId ?? projectResponse[0]?.id ?? null;
     setSelectedProjectId(nextSelected);
@@ -377,6 +396,23 @@ export default function RegistryConsole() {
     setVerificationCase(verificationResponse);
     setGisAssessment((current) => (current?.project_id === projectId ? current : null));
     setAiReview((current) => (current?.project_id === projectId ? current : null));
+  }
+
+  async function runNationalOperation(key: string, action: () => Promise<{ message: string }>) {
+    setNationalActionKey(key);
+    setMessage(null);
+    try {
+      const result = await action();
+      setNationalOperations(await getNationalOperations());
+      setMessage({ type: "success", text: result.message });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "National operation failed."
+      });
+    } finally {
+      setNationalActionKey(null);
+    }
   }
 
   useEffect(() => {
@@ -1945,22 +1981,59 @@ export default function RegistryConsole() {
         </Paper>
       ) : activeTab === "national" ? (
         <div className="grid gap-5">
-          <Paper elevation={0} className="border p-6">
+          <Paper elevation={0} className="border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
-                <Typography variant="h5" fontWeight={900}>National Deployment Stages</Typography>
+                <Typography variant="h5" fontWeight={900}>National Deployment Control Board</Typography>
                 <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-                  Official readiness controls for moving ZAI-CTS from controlled pilot to national carbon registry infrastructure.
+                  Live operating controls for moving ZAI-CTS from controlled pilot into official national registry operations.
                 </p>
               </div>
-              <div className="rounded-md bg-slate-950 p-4 text-white">
+              <div className="rounded-md bg-slate-950 p-4 text-white shadow-lg">
                 <span className="text-xs uppercase tracking-wider text-slate-300">Current maturity</span>
                 <strong className="mt-1 block text-3xl">{nationalReadiness?.maturity_score ?? "--"}/100</strong>
               </div>
             </div>
             <Alert className="mt-4" severity="warning">{nationalReadiness?.deployment_position ?? "Readiness data is loading."}</Alert>
+            <div className="mt-5 grid gap-3 md:grid-cols-4">
+              {[
+                ["Accounts", nationalOperations?.registry_accounts.length ?? 0],
+                ["Methodologies", nationalOperations?.methodologies.length ?? 0],
+                ["Accreditations", nationalOperations?.accreditations.length ?? 0],
+                ["Stage decisions", nationalOperations?.stage_decisions.length ?? 0]
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
+                  <strong className="block text-2xl text-zai-ink">{value}</strong>
+                  <span className="text-sm text-slate-500">{label}</span>
+                </div>
+              ))}
+            </div>
           </Paper>
-          <div className="grid gap-4 xl:grid-cols-2">
+          <Paper elevation={0} className="border p-5">
+            <Typography variant="h6" fontWeight={900}>Execute Stage Controls</Typography>
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              {[
+                ["registry_account", "Open Registry Account", "Account control already recorded", () => openRegistryAccount()],
+                ["methodology", "Approve Methodology", "Methodology already approved", () => approveNationalMethodology()],
+                ["verifier_accreditation", "Grant Accreditation", "Verifier accreditation active", () => grantVerifierAccreditation()]
+              ].map(([key, label, doneLabel, action]) => {
+                const isDone = nationalOperationTypes.has(key as string);
+                return (
+                  <Button
+                    key={key as string}
+                    variant={isDone ? "outlined" : "contained"}
+                    disabled={isDone || nationalActionKey === key}
+                    onClick={() => runNationalOperation(key as string, action as () => Promise<{ message: string }>)}
+                    startIcon={isDone ? <LockIcon /> : <VerifiedIcon />}
+                    className="!justify-start !py-3"
+                  >
+                    {isDone ? String(doneLabel) : String(label)}
+                  </Button>
+                );
+              })}
+            </div>
+          </Paper>
+          <div className="grid gap-4 2xl:grid-cols-2">
             {(nationalReadiness?.stages ?? []).map((stage) => (
               <Paper key={stage.stage} elevation={0} className="border p-5 transition hover:-translate-y-0.5 hover:shadow-lg">
                 <div className="flex items-start justify-between gap-3">
@@ -1971,7 +2044,12 @@ export default function RegistryConsole() {
                   <Chip color={stage.status === "not_started" ? "default" : stage.status === "blocked" ? "error" : "warning"} label={formatStatus(stage.status)} />
                 </div>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{stage.objective}</p>
-                <LinearProgress className="mt-4" variant="determinate" value={stage.maturity_score} sx={{ height: 8, borderRadius: 8 }} />
+                <LinearProgress
+                  className="mt-4"
+                  variant="determinate"
+                  value={nationalOperations?.stage_completion.find((item) => item.stage === stage.stage)?.completion_percent ?? stage.maturity_score}
+                  sx={{ height: 8, borderRadius: 8 }}
+                />
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
                   <div>
                     <strong className="text-sm text-zai-ink">Capabilities</strong>
@@ -1986,6 +2064,15 @@ export default function RegistryConsole() {
                     {stage.next_controls.slice(0, 4).map((item) => <p key={item} className="mt-2 text-xs text-slate-600">{item}</p>)}
                   </div>
                 </div>
+                <Button
+                  className="!mt-4"
+                  size="small"
+                  variant={nationalOperations?.stage_decisions.some((record) => record.stage === stage.stage) ? "outlined" : "contained"}
+                  disabled={nationalOperations?.stage_decisions.some((record) => record.stage === stage.stage) || nationalActionKey === `stage-${stage.stage}`}
+                  onClick={() => runNationalOperation(`stage-${stage.stage}`, () => recordStageDecision(stage.stage))}
+                >
+                  {nationalOperations?.stage_decisions.some((record) => record.stage === stage.stage) ? "Stage decision locked" : "Record stage control decision"}
+                </Button>
               </Paper>
             ))}
           </div>
@@ -1999,10 +2086,10 @@ export default function RegistryConsole() {
             </p>
             <div className="mt-5 grid gap-3 md:grid-cols-4">
               {[
-                ["Authorizations", "0", "No Article 6 authorization workflow live"],
-                ["ITMO Transfers", "0", "First transfer ledger required"],
-                ["CA Status", "not started", "Corresponding adjustment module missing"],
-                ["NDC Sectors", "0", "National accounting snapshots required"]
+                ["Authorizations", String(nationalOperations?.article6_authorizations.length ?? 0), "Host-country authorization records"],
+                ["Listings", String(nationalOperations?.marketplace_controls.length ?? 0), "Marketplace surveillance controls"],
+                ["Snapshots", String(nationalOperations?.accounting_snapshots.length ?? 0), "National accounting locks"],
+                ["CA Status", nationalOperationTypes.has("article6_authorization") ? "flagged" : "not started", "Corresponding adjustment control"]
               ].map(([label, value, note]) => (
                 <div key={label} className="rounded-md border bg-slate-50 p-4">
                   <span className="text-xs uppercase tracking-wider text-slate-500">{label}</span>
@@ -2010,6 +2097,26 @@ export default function RegistryConsole() {
                   <p className="mt-1 text-xs text-slate-600">{note}</p>
                 </div>
               ))}
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {[
+                ["article6_authorization", "Authorize Article 6 Transfer", () => authorizeArticle6Transfer(selectedProjectCode)],
+                ["marketplace_listing", "Create Market Listing Control", () => createMarketplaceListingControl(selectedProjectCode)],
+                ["accounting_snapshot", "Lock Accounting Snapshot", () => createAccountingSnapshot()]
+              ].map(([key, label, action]) => {
+                const isDone = nationalOperationTypes.has(key as string);
+                return (
+                  <Button
+                    key={key as string}
+                    variant={isDone ? "outlined" : "contained"}
+                    disabled={isDone || nationalActionKey === key}
+                    onClick={() => runNationalOperation(key as string, action as () => Promise<{ message: string }>)}
+                    startIcon={isDone ? <LockIcon /> : <SummarizeIcon />}
+                  >
+                    {isDone ? "Control recorded" : String(label)}
+                  </Button>
+                );
+              })}
             </div>
           </Paper>
           <Paper elevation={0} className="border p-6">
@@ -2037,18 +2144,41 @@ export default function RegistryConsole() {
             </p>
             <div className="mt-5 grid gap-3 md:grid-cols-3">
               {[
-                ["Open enforcement cases", "0"],
-                ["Verifier accreditations", "0"],
-                ["Market conduct alerts", "0"],
+                ["Open enforcement cases", String(nationalOperations?.compliance_cases.length ?? 0)],
+                ["Verifier accreditations", String(nationalOperations?.accreditations.length ?? 0)],
+                ["Market conduct alerts", String(nationalOperations?.marketplace_controls.length ?? 0)],
                 ["Fraud risk alerts", String(aiDocumentChecks.filter((check) => String(check.ownership_status) !== "matched").length)],
                 ["Pending appeals", "0"],
-                ["Public disclosures", "0"]
+                ["Public disclosures", String(nationalOperations?.audit_timeline.length ?? 0)]
               ].map(([label, value]) => (
                 <div key={label} className="rounded-md border bg-white p-4">
                   <strong className="block text-2xl text-zai-ink">{value}</strong>
                   <span className="text-sm text-slate-500">{label}</span>
                 </div>
               ))}
+            </div>
+            <Button
+              className="!mt-5"
+              variant={nationalOperationTypes.has("compliance_case") ? "outlined" : "contained"}
+              disabled={nationalOperationTypes.has("compliance_case") || nationalActionKey === "compliance_case"}
+              onClick={() => runNationalOperation("compliance_case", () => openComplianceCase())}
+              startIcon={nationalOperationTypes.has("compliance_case") ? <LockIcon /> : <GavelIcon />}
+            >
+              {nationalOperationTypes.has("compliance_case") ? "Compliance case opened" : "Open Compliance Case"}
+            </Button>
+            <div className="mt-5 rounded-md border bg-slate-950 p-4 text-white">
+              <Typography variant="h6" fontWeight={900}>National Audit Timeline</Typography>
+              <Stack spacing={1.2} className="mt-3 max-h-[360px] overflow-auto pr-1">
+                {(nationalOperations?.audit_timeline ?? []).slice(0, 12).map((record) => (
+                  <div key={record.id} className="rounded-md border border-white/10 bg-white/5 p-3 text-sm transition hover:bg-white/10">
+                    <div className="flex items-center justify-between gap-3">
+                      <strong>{record.title}</strong>
+                      <Chip size="small" label={formatStatus(record.status)} />
+                    </div>
+                    <p className="mt-1 text-xs text-slate-300">Stage {record.stage} - {record.owner} - {new Date(record.created_at).toLocaleString()}</p>
+                  </div>
+                ))}
+              </Stack>
             </div>
           </Paper>
           <Paper elevation={0} className="border p-6">

@@ -52,6 +52,35 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
     return upstream.body.json();
   });
 
+  app.all("/api/v1/national-operations", async (incoming, reply) => {
+    const url = new URL("/api/v1/national-operations", config.CARBON_REGISTRY_URL);
+
+    const upstream = await request(url, {
+      method: incoming.method,
+      headers: upstreamHeaders(incoming.headers),
+      body: upstreamBody(incoming.method, firstHeader(incoming.headers["content-type"]), incoming.body)
+    });
+
+    reply.statusCode = upstream.statusCode;
+    reply.headers(upstream.headers);
+    return upstream.body.json();
+  });
+
+  app.all("/api/v1/national-operations/*", async (incoming, reply) => {
+    const params = incoming.params as { "*": string };
+    const url = new URL(`/api/v1/national-operations/${params["*"]}`, config.CARBON_REGISTRY_URL);
+
+    const upstream = await request(url, {
+      method: incoming.method,
+      headers: upstreamHeaders(incoming.headers),
+      body: upstreamBody(incoming.method, firstHeader(incoming.headers["content-type"]), incoming.body)
+    });
+
+    reply.statusCode = upstream.statusCode;
+    reply.headers(upstream.headers);
+    return upstream.body.json();
+  });
+
   app.all("/api/v1/projects", async (incoming, reply) => {
     const url = new URL("/api/v1/projects", config.CARBON_REGISTRY_URL);
     if (incoming.query && Object.keys(incoming.query as object).length > 0) {
