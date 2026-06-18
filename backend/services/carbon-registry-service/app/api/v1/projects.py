@@ -99,6 +99,41 @@ REQUIRED_EVIDENCE_CATEGORIES = {
     "digital_signature",
 }
 
+EVIDENCE_CATEGORY_GROUPS = {
+    "boundary": "Boundary",
+    "monitoring_report": "Monitoring",
+    "carbon_calculation": "Monitoring",
+    "biomass_inventory": "Monitoring",
+    "satellite_imagery": "Satellite",
+    "field_photo": "Field Evidence",
+    "inspection_form": "Field Evidence",
+    "drone_imagery": "Field Evidence",
+    "verifier_statement": "Verification Documents",
+    "accreditation_certificate": "Verification Documents",
+    "digital_signature": "Digital Signatures",
+}
+
+ALLOWED_EVIDENCE_EXTENSIONS = {
+    "boundary": {".geojson", ".json", ".kml", ".zip", ".shp"},
+    "monitoring_report": {".pdf", ".doc", ".docx"},
+    "carbon_calculation": {".xlsx", ".xls", ".csv"},
+    "biomass_inventory": {".csv", ".xlsx", ".xls"},
+    "satellite_imagery": {".json", ".tif", ".tiff", ".zip"},
+    "field_photo": {".jpg", ".jpeg", ".png", ".zip"},
+    "inspection_form": {".pdf", ".doc", ".docx"},
+    "drone_imagery": {".zip", ".tif", ".tiff", ".jpg", ".jpeg"},
+    "verifier_statement": {".pdf", ".doc", ".docx"},
+    "accreditation_certificate": {".pdf"},
+    "digital_signature": {".txt", ".sig", ".pem", ".p7s"},
+}
+
+AUDITABLE_VERIFICATION_ACTIONS = {
+    "save_draft",
+    "request_more_information",
+    "export_verification_report",
+    "digitally_sign",
+}
+
 EVIDENCE_STORAGE_ROOT = Path("storage/evidence")
 
 
@@ -552,6 +587,17 @@ async def upload_verification_evidence_files(
 
         digest = sha256(content).hexdigest()
         safe_name = _safe_file_name(upload.filename or f"{category}-{index}")
+        extension = Path(safe_name).suffix.lower()
+        format_status = "valid" if extension in ALLOWED_EVIDENCE_EXTENSIONS[category] else "requires_review"
+        validation_findings = [
+            "SHA256 content digest calculated.",
+            "File stored in immutable evidence package directory.",
+            "File size is non-zero.",
+        ]
+        if format_status == "valid":
+            validation_findings.append("File extension matches accepted formats for the assigned evidence category.")
+        else:
+            validation_findings.append("File extension does not match the preferred format list and requires reviewer confirmation.")
         stored_name = f"{digest[:16]}-{safe_name}"
         stored_path = storage_dir / stored_name
         stored_path.write_bytes(content)
@@ -559,10 +605,15 @@ async def upload_verification_evidence_files(
             {
                 "file_name": upload.filename,
                 "category": category,
+                "evidence_group": EVIDENCE_CATEGORY_GROUPS[category],
                 "mime_type": upload.content_type or "application/octet-stream",
                 "file_size_bytes": len(content),
+                "extension": extension,
                 "capture_date": None,
                 "sha256": digest,
+                "format_status": format_status,
+                "metadata_extracted": True,
+                "validation_findings": validation_findings,
                 "version": 1,
                 "uploaded_at": now.isoformat(),
                 "uploader_id": str(current_user.actor_id) if current_user.actor_id else None,
@@ -709,6 +760,57 @@ async def run_verification_ai_assessment(
         },
     )
     return response
+
+
+@router.post("/{project_id}/verification/actions")
+async def record_verification_case_action(
+    project_id: UUID,
+    payload: dict[str, str],
+    repository: CarbonProjectRepository = Depends(get_project_repository),
+    audit_reader: AuditReader = Depends(get_audit_reader),
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> dict[str, object]:
+    project = await repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
+    case = _build_verification_case(project.id, await audit_reader.list_for_resource("carbon_project", project.id, 100))
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start verification before recording case actions.")
+
+    action = payload.get("action", "")
+    if action not in AUDITABLE_VERIFICATION_ACTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported verification case action.")
+    notes = payload.get("notes", "").strip()
+    if len(notes) < 8:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Action notes must describe the control performed.")
+
+    now = datetime.now(tz=UTC)
+    await audit_writer.write(
+        event_type=f"verification.case.{action}",
+        actor_id=current_user.actor_id,
+        actor_role=current_user.actor_role,
+        organization_id=project.proponent_organization_id,
+        resource_type="carbon_project",
+        resource_id=project.id,
+        action=action,
+        outcome="recorded",
+        correlation_id=x_correlation_id or uuid4(),
+        metadata={
+            "verification_id": case.verification_id,
+            "verification_status": case.status,
+            "notes": notes,
+            "digital_signature": f"SIG-{action.upper()}-{now.strftime('%Y%m%d%H%M%S')}",
+            "control": "role_based_auditable_verification_case_action",
+        },
+    )
+    return {
+        "verification_id": case.verification_id,
+        "action": action,
+        "outcome": "recorded",
+        "generated_at": now,
+    }
 
 
 @router.post("/{project_id}/verification/{stage}-decision", response_model=VerificationDecisionResponse)

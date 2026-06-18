@@ -176,6 +176,12 @@ export type VerificationUploadFile = {
   digital_signature: string;
 };
 
+export type VerificationCaseAction =
+  | "save_draft"
+  | "request_more_information"
+  | "export_verification_report"
+  | "digitally_sign";
+
 export type RegisterCarbonProjectPayload = {
   project_code: string;
   title: string;
@@ -473,6 +479,21 @@ export async function decideVerificationStage(
     const body = await response.text();
     throw new Error(body || `Verification ${stage} decision failed with ${response.status}`);
   }
+  return response.json();
+}
+
+export async function recordVerificationCaseAction(projectId: string, action: VerificationCaseAction, notes: string) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/projects/${projectId}/verification/actions`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify({ action, notes })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Verification case action failed with ${response.status}`);
+  }
+
   return response.json();
 }
 

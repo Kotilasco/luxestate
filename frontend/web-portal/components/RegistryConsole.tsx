@@ -20,6 +20,7 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  LinearProgress,
   MenuItem,
   Paper,
   Stack,
@@ -51,6 +52,7 @@ import {
   listCreditBatches,
   listEvidence,
   registerCarbonProject,
+  recordVerificationCaseAction,
   runAiReview,
   runAutomaticVerification,
   runGisAssessment,
@@ -62,6 +64,7 @@ import {
   validateGisEvidence,
   VerificationAssessment,
   VerificationCase,
+  VerificationCaseAction,
   VerificationFile,
   VerificationUploadFile,
   WorkflowAction
@@ -103,6 +106,85 @@ const REQUIRED_VERIFICATION_UPLOADS: Array<{ category: VerificationFile["categor
   { category: "accreditation_certificate", label: "Accreditation certificate", accept: ".pdf" },
   { category: "digital_signature", label: "Digital signature", accept: ".txt,.sig,.pem" }
 ];
+
+const EVIDENCE_GROUPS = [
+  "Boundary",
+  "Monitoring",
+  "Satellite",
+  "Field Evidence",
+  "Verification Documents",
+  "Digital Signatures"
+] as const;
+
+const CATEGORY_GROUP: Record<VerificationFile["category"], typeof EVIDENCE_GROUPS[number]> = {
+  boundary: "Boundary",
+  monitoring_report: "Monitoring",
+  carbon_calculation: "Monitoring",
+  biomass_inventory: "Monitoring",
+  satellite_imagery: "Satellite",
+  field_photo: "Field Evidence",
+  inspection_form: "Field Evidence",
+  drone_imagery: "Field Evidence",
+  verifier_statement: "Verification Documents",
+  accreditation_certificate: "Verification Documents",
+  digital_signature: "Digital Signatures"
+};
+
+const CATEGORY_FORMATS: Record<VerificationFile["category"], string[]> = {
+  boundary: [".geojson", ".json", ".kml", ".zip", ".shp"],
+  monitoring_report: [".pdf", ".doc", ".docx"],
+  carbon_calculation: [".xlsx", ".xls", ".csv"],
+  biomass_inventory: [".csv", ".xlsx", ".xls"],
+  satellite_imagery: [".json", ".tif", ".tiff", ".zip"],
+  field_photo: [".jpg", ".jpeg", ".png", ".zip"],
+  inspection_form: [".pdf", ".doc", ".docx"],
+  drone_imagery: [".zip", ".tif", ".tiff", ".jpg", ".jpeg"],
+  verifier_statement: [".pdf", ".doc", ".docx"],
+  accreditation_certificate: [".pdf"],
+  digital_signature: [".txt", ".sig", ".pem", ".p7s"]
+};
+
+type EvidenceValidation = {
+  file: File;
+  category: VerificationFile["category"];
+  group: typeof EVIDENCE_GROUPS[number];
+  formatStatus: "valid" | "requires_review";
+};
+
+function fileExtension(fileName: string) {
+  const index = fileName.lastIndexOf(".");
+  return index >= 0 ? fileName.slice(index).toLowerCase() : "";
+}
+
+function inferEvidenceCategory(file: File): VerificationFile["category"] {
+  const name = file.name.toLowerCase();
+  const ext = fileExtension(file.name);
+  if (name.includes("boundary") || [".geojson", ".kml", ".shp"].includes(ext)) return "boundary";
+  if (name.includes("signature") || [".sig", ".pem", ".p7s"].includes(ext)) return "digital_signature";
+  if (name.includes("accredit")) return "accreditation_certificate";
+  if (name.includes("verifier") || name.includes("statement")) return "verifier_statement";
+  if (name.includes("drone") || name.includes("uav")) return "drone_imagery";
+  if (name.includes("inspection")) return "inspection_form";
+  if (name.includes("photo") || name.includes("field") || [".jpg", ".jpeg", ".png"].includes(ext)) return "field_photo";
+  if (name.includes("satellite") || name.includes("sentinel") || name.includes("landsat") || [".tif", ".tiff"].includes(ext)) return "satellite_imagery";
+  if (name.includes("biomass") || name.includes("inventory")) return "biomass_inventory";
+  if (name.includes("carbon") || name.includes("calculation") || [".xlsx", ".xls", ".csv"].includes(ext)) return "carbon_calculation";
+  if (name.includes("monitor") || name.includes("report") || ext === ".pdf") return "monitoring_report";
+  return ext === ".zip" ? "boundary" : "monitoring_report";
+}
+
+function evidenceValidations(files: File[]): EvidenceValidation[] {
+  return files.map((file) => {
+    const category = inferEvidenceCategory(file);
+    const extension = fileExtension(file.name);
+    return {
+      file,
+      category,
+      group: CATEGORY_GROUP[category],
+      formatStatus: CATEGORY_FORMATS[category].includes(extension) ? "valid" : "requires_review"
+    };
+  });
+}
 
 const statusStep: Record<string, number> = {
   draft: 0,
@@ -192,7 +274,8 @@ export default function RegistryConsole() {
   const [aiReview, setAiReview] = useState<AiReview | null>(null);
   const [verificationCase, setVerificationCase] = useState<VerificationCase | null>(null);
   const [verificationAssessment, setVerificationAssessment] = useState<VerificationAssessment | null>(null);
-  const [verificationUploadFiles, setVerificationUploadFiles] = useState<Record<string, File | null>>({});
+  const [evidencePackageFiles, setEvidencePackageFiles] = useState<File[]>([]);
+  const [isEvidenceDragActive, setIsEvidenceDragActive] = useState(false);
   const [gisEvidenceForm, setGisEvidenceForm] = useState<GisEvidencePayload>({
     boundary_geojson:
       '{"type":"Feature","properties":{"name":"Kariba block A"},"geometry":{"type":"Polygon","coordinates":[[[28.72,-16.45],[28.92,-16.45],[28.92,-16.62],[28.72,-16.62],[28.72,-16.45]]]}}',
@@ -214,6 +297,20 @@ export default function RegistryConsole() {
 
   const activeStep = selectedProject ? statusStep[selectedProject.status] ?? 0 : 0;
   const totalIssued = credits.reduce((sum, batch) => sum + Number(batch.quantity_tco2e), 0);
+  const packageValidations = useMemo(() => evidenceValidations(evidencePackageFiles), [evidencePackageFiles]);
+  const latestEvidenceUpload = useMemo(
+    () => auditEvents.find((event) => event.event_type === "verification.evidence_files.uploaded" || event.event_type === "verification.evidence_package.uploaded"),
+    [auditEvents]
+  );
+  const uploadedEvidenceFiles = useMemo(
+    () => (Array.isArray(latestEvidenceUpload?.metadata?.files) ? latestEvidenceUpload.metadata.files : []) as Array<Record<string, unknown>>,
+    [latestEvidenceUpload]
+  );
+  const verificationProgress = verificationCase
+    ? Math.round(((Math.max(0, VERIFICATION_SEQUENCE.indexOf(verificationCase.status)) + 1) / VERIFICATION_SEQUENCE.length) * 100)
+    : 0;
+  const selectedUploadCategories = new Set(selectedVerificationUploads().map((upload) => upload.category));
+  const uploadedCategories = new Set(uploadedEvidenceFiles.map((file) => String(file.category)));
 
   async function loadProjects(preferredProjectId?: string) {
     const [healthResponse, projectResponse] = await Promise.all([
@@ -424,13 +521,34 @@ export default function RegistryConsole() {
     await loadProjectDetails(projectId);
   }
 
-  function updateVerificationUpload(category: VerificationFile["category"], file: File | null) {
-    setVerificationUploadFiles((current) => ({ ...current, [category]: file }));
+  function addEvidencePackageFiles(files: FileList | File[]) {
+    const incoming = Array.from(files);
+    setEvidencePackageFiles((current) => {
+      const existingKeys = new Set(current.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
+      return [
+        ...current,
+        ...incoming.filter((file) => !existingKeys.has(`${file.name}-${file.size}-${file.lastModified}`))
+      ];
+    });
   }
 
   function selectedVerificationUploads(): VerificationUploadFile[] {
+    const categorized = new Map<VerificationFile["category"], File>();
+    packageValidations.forEach((item) => {
+      if (!categorized.has(item.category)) {
+        categorized.set(item.category, item.file);
+      }
+    });
+    const consolidatedZip = evidencePackageFiles.find((file) => fileExtension(file.name) === ".zip");
+    if (consolidatedZip) {
+      REQUIRED_VERIFICATION_UPLOADS.forEach((item) => {
+        if (!categorized.has(item.category)) {
+          categorized.set(item.category, consolidatedZip);
+        }
+      });
+    }
     return REQUIRED_VERIFICATION_UPLOADS.flatMap((item) => {
-      const file = verificationUploadFiles[item.category];
+      const file = categorized.get(item.category);
       return file
         ? [{
             file,
@@ -439,6 +557,40 @@ export default function RegistryConsole() {
           }]
         : [];
     });
+  }
+
+  async function runCaseAction(action: VerificationCaseAction, notes: string) {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      await recordVerificationCaseAction(selectedProject.id, action, notes);
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: `Verification case action recorded: ${formatStatus(action)}.` });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Verification case action failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function rejectVerificationCase() {
+    if (!selectedProject) {
+      return;
+    }
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      await decideVerificationStage(selectedProject.id, "verifier", "reject", "Verification case rejected pending corrective action and full evidence remediation.");
+      await loadProjectDetails(selectedProject.id);
+      setMessage({ type: "success", text: "Verification case rejected and audit trail updated." });
+    } catch (error: unknown) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Verification rejection failed." });
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function runVerificationStep(step: "start" | "evidence" | "automatic" | "ai" | "gis" | "mrv" | "verifier" | "zicma") {
@@ -453,7 +605,7 @@ export default function RegistryConsole() {
       } else if (step === "evidence") {
         const uploads = selectedVerificationUploads();
         if (uploads.length !== REQUIRED_VERIFICATION_UPLOADS.length) {
-          throw new Error("Select one file for every required evidence category before uploading.");
+          throw new Error("Upload a complete evidence package. Use a consolidated ZIP or files that cover every evidence checklist item.");
         }
         await uploadVerificationEvidenceFiles(selectedProject.id, uploads);
       } else if (step === "automatic") {
@@ -576,113 +728,250 @@ export default function RegistryConsole() {
           </Paper>
         </div>
       ) : activeTab === "verification" ? (
-        <Paper elevation={0} className="workspace-panel border p-8">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-            <div>
-              <Typography variant="h5" fontWeight={900}>Verification case workflow</Typography>
-              <p className="mt-3 max-w-3xl text-slate-600">
-                Start a verification case, upload a complete evidence package, run automatic and AI validation, complete GIS/MRV/verifier/ZiCMA review, then issue credits.
-              </p>
+        <div className="grid gap-6">
+          <Paper elevation={0} className="workspace-panel border p-6">
+            <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
+              <div>
+                <Typography variant="h5" fontWeight={900}>Verification Case Dashboard</Typography>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                  Evidence intake, automated controls, AI review, GIS intelligence, human verification, regulator approval, and audit history for the selected carbon project.
+                </p>
+              </div>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("save_draft", "Verification case dashboard draft saved by case operator.")}>Save Draft</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("request_more_information", "Additional project evidence and clarifications requested from the proponent.")}>Request More Information</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("export_verification_report", "Verification report exported with audit references, evidence hashes and reviewer decisions.")}>Export Verification Report</Button>
+                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runCaseAction("digitally_sign", "Case officer digitally signed the current verification case record.")}>Digitally Sign</Button>
+                <Button variant="contained" startIcon={<AssignmentTurnedInIcon />} disabled={isLoading || !selectedProject} onClick={() => runVerificationStep("start")}>Start Case</Button>
+              </Stack>
             </div>
-            <Button variant="contained" startIcon={<AssignmentTurnedInIcon />} disabled={isLoading || !selectedProject} onClick={() => runVerificationStep("start")}>
-              Start Verification
-            </Button>
-          </div>
+          </Paper>
 
           {selectedProject ? (
-            <Stack spacing={4} className="mt-6">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-lg bg-sky-50 p-4">
-                  <strong className="block text-zai-ink">{verificationCase?.verification_id ?? "No case"}</strong>
-                  <span className="text-sm text-slate-500">Verification ID</span>
-                </div>
-                <div className="rounded-lg bg-sky-50 p-4">
-                  <strong className="block text-zai-ink">{verificationCase?.status ?? "not started"}</strong>
-                  <span className="text-sm text-slate-500">Case status</span>
-                </div>
-                <div className="rounded-lg bg-sky-50 p-4">
-                  <strong className="block text-zai-ink">{verificationCase?.assigned_verifier ?? "Not Assigned"}</strong>
-                  <span className="text-sm text-slate-500">Assigned verifier</span>
-                </div>
-              </div>
-
-              <Stepper activeStep={verificationCase ? Math.max(0, VERIFICATION_SEQUENCE.indexOf(verificationCase.status)) : 0} alternativeLabel>
-                {["Evidence", "Auto", "AI", "GIS", "MRV", "Verifier", "ZiCMA", "Approved"].map((label) => (
-                  <Step key={label}><StepLabel>{label}</StepLabel></Step>
-                ))}
-              </Stepper>
-
-              <div className="grid gap-3 md:grid-cols-4">
-                {[
-                  ["Automatic", verificationCase?.automatic_validation_status ?? "not_started"],
-                  ["AI", verificationCase?.ai_status ?? "not_started"],
-                  ["GIS", verificationCase?.gis_status ?? "not_started"],
-                  ["MRV", verificationCase?.mrv_status ?? "not_started"],
-                  ["Verifier", verificationCase?.verifier_status ?? "not_started"],
-                  ["ZiCMA", verificationCase?.zicma_status ?? "not_started"],
-                  ["Integrity", verificationCase?.integrity_score ?? "-"],
-                  ["Risk", verificationCase?.risk_score ?? "-"]
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg border bg-white p-4">
-                    <strong className="block text-zai-ink">{value}</strong>
-                    <span className="text-sm text-slate-500">{label}</span>
-                  </div>
-                ))}
-              </div>
-
-              <Paper elevation={0} className="border p-5">
-                <div className="mb-4 flex flex-col justify-between gap-2 md:flex-row md:items-center">
+            <Stack spacing={3}>
+              <Paper elevation={0} className="workspace-panel border p-6">
+                <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
                   <div>
-                    <Typography variant="h6" fontWeight={900}>Evidence file upload</Typography>
-                    <p className="text-sm text-slate-600">
-                      Select one real file for each required evidence category. The backend stores the uploaded bytes and calculates SHA256 hashes.
-                    </p>
-                  </div>
-                  <Chip
-                    color={selectedVerificationUploads().length === REQUIRED_VERIFICATION_UPLOADS.length ? "success" : "warning"}
-                    label={`${selectedVerificationUploads().length}/${REQUIRED_VERIFICATION_UPLOADS.length} selected`}
-                  />
-                </div>
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {REQUIRED_VERIFICATION_UPLOADS.map((item) => (
-                    <div key={item.category} className="rounded-lg border bg-white p-4">
-                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <strong className="block text-zai-ink">{item.label}</strong>
-                          <span className="text-xs text-slate-500">{item.category}</span>
-                          {verificationUploadFiles[item.category] && (
-                            <p className="mt-1 text-xs text-slate-600">
-                              {verificationUploadFiles[item.category]?.name} - {Math.ceil((verificationUploadFiles[item.category]?.size ?? 0) / 1024)} KB
-                            </p>
-                          )}
-                        </div>
-                        <Button variant="outlined" component="label" startIcon={<UploadFileIcon />}>
-                          Choose File
-                          <input
-                            hidden
-                            type="file"
-                            accept={item.accept}
-                            onChange={(event) => updateVerificationUpload(item.category, event.target.files?.[0] ?? null)}
-                          />
-                        </Button>
+                    <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Project</p>
+                        <Typography variant="h5" fontWeight={900}>{selectedProject.title}</Typography>
+                        <p className="mt-1 text-sm text-slate-600">{selectedProject.project_code} - {selectedProject.district}, {selectedProject.province}</p>
+                      </div>
+                      <Chip color={verificationCase?.status === "approved" ? "success" : "primary"} label={formatStatus(verificationCase?.status ?? "not started")} />
+                    </div>
+                    <div className="mt-5 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-md border bg-white p-4">
+                        <strong className="block text-zai-ink">{verificationCase?.verification_id ?? "No active case"}</strong>
+                        <span className="text-xs uppercase tracking-wider text-slate-500">Verification ID</span>
+                      </div>
+                      <div className="rounded-md border bg-white p-4">
+                        <strong className="block text-zai-ink">{verificationCase ? `${verificationCase.monitoring_period_start} to ${verificationCase.monitoring_period_end}` : "Not scheduled"}</strong>
+                        <span className="text-xs uppercase tracking-wider text-slate-500">Monitoring period</span>
+                      </div>
+                      <div className="rounded-md border bg-white p-4">
+                        <strong className="block text-zai-ink">{verificationCase?.assigned_verifier ?? "Not assigned"}</strong>
+                        <span className="text-xs uppercase tracking-wider text-slate-500">Assigned verifier</span>
                       </div>
                     </div>
-                  ))}
+                    <div className="mt-5">
+                      <div className="mb-2 flex items-center justify-between text-sm">
+                        <strong className="text-zai-ink">Workflow progress</strong>
+                        <span className="text-slate-600">{verificationProgress}%</span>
+                      </div>
+                      <LinearProgress variant="determinate" value={verificationProgress} sx={{ height: 10, borderRadius: 8 }} />
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                    {[
+                      ["Integrity score", verificationCase?.integrity_score ?? "-", "Evidence and rule consistency"],
+                      ["AI confidence", verificationCase?.confidence_score ?? "-", "Model-assisted review confidence"],
+                      ["Risk score", verificationCase?.risk_score ?? "-", "Operational and fraud risk"]
+                    ].map(([label, value, hint]) => (
+                      <div key={label} className="rounded-md border bg-slate-950 p-4 text-white">
+                        <span className="text-xs uppercase tracking-wider text-slate-300">{label}</span>
+                        <strong className="mt-2 block text-3xl">{value}</strong>
+                        <p className="mt-1 text-xs text-slate-300">{hint}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </Paper>
 
-              <div className="grid gap-3 md:grid-cols-4">
-                <Button variant="outlined" startIcon={<UploadFileIcon />} disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("evidence")}>Upload Evidence</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("automatic")}>Automatic Validation</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("ai")}>AI Assessment</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("gis")}>Approve GIS</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("mrv")}>Pass MRV</Button>
-                <Button variant="outlined" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("verifier")}>Verifier Approve</Button>
-                <Button variant="contained" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("zicma")}>ZiCMA Approve</Button>
-                <Button variant="contained" color="success" startIcon={<FactCheckIcon />} onClick={issueCredits} disabled={isLoading || verificationCase?.zicma_status !== "approve"}>
-                  Issue Credits
-                </Button>
+              <Paper elevation={0} className="workspace-panel border p-6">
+                <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+                  <div>
+                    <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                      <div>
+                        <Typography variant="h6" fontWeight={900}>Evidence Package</Typography>
+                        <p className="text-sm text-slate-600">Drop a consolidated ZIP or multiple files. Files are categorized into evidence groups and uploaded as an auditable package.</p>
+                      </div>
+                      <Chip color={selectedVerificationUploads().length === REQUIRED_VERIFICATION_UPLOADS.length ? "success" : "warning"} label={`${selectedVerificationUploads().length}/${REQUIRED_VERIFICATION_UPLOADS.length} checklist items mapped`} />
+                    </div>
+                    <div
+                      className={`rounded-lg border-2 border-dashed p-8 text-center transition ${isEvidenceDragActive ? "border-sky-500 bg-sky-50" : "border-slate-300 bg-white"}`}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setIsEvidenceDragActive(true);
+                      }}
+                      onDragLeave={() => setIsEvidenceDragActive(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setIsEvidenceDragActive(false);
+                        addEvidencePackageFiles(event.dataTransfer.files);
+                      }}
+                    >
+                      <UploadFileIcon className="text-sky-700" fontSize="large" />
+                      <Typography className="mt-2" variant="h6" fontWeight={900}>Drag evidence package here</Typography>
+                      <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-600">Accepts ZIP packages, GeoJSON/KML boundaries, PDFs, spreadsheets, imagery, photos, signatures and verifier documents.</p>
+                      <Button className="mt-4" variant="contained" component="label" startIcon={<UploadFileIcon />}>
+                        Select ZIP or Files
+                        <input hidden type="file" multiple accept=".zip,.geojson,.json,.kml,.shp,.pdf,.doc,.docx,.xlsx,.xls,.csv,.tif,.tiff,.jpg,.jpeg,.png,.sig,.pem,.p7s,.txt" onChange={(event) => event.target.files && addEvidencePackageFiles(event.target.files)} />
+                      </Button>
+                    </div>
+                    <div className="mt-4 grid gap-2 md:grid-cols-2">
+                      {packageValidations.length === 0 ? (
+                        <Alert severity="info">No package selected yet. A single ZIP can be used for a complete consolidated evidence package.</Alert>
+                      ) : (
+                        packageValidations.map((item) => (
+                          <div key={`${item.file.name}-${item.file.lastModified}`} className="rounded-md border bg-white p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <strong className="block text-sm text-zai-ink">{item.file.name}</strong>
+                                <span className="text-xs text-slate-500">{item.group} - {formatStatus(item.category)} - {Math.ceil(item.file.size / 1024)} KB</span>
+                              </div>
+                              <Chip size="small" color={item.formatStatus === "valid" ? "success" : "warning"} label={formatStatus(item.formatStatus)} />
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <Typography variant="h6" fontWeight={900}>Evidence Checklist</Typography>
+                    <Stack spacing={1.5} className="mt-3">
+                      {EVIDENCE_GROUPS.map((group) => {
+                        const groupCategories = REQUIRED_VERIFICATION_UPLOADS.filter((item) => CATEGORY_GROUP[item.category] === group);
+                        const completed = groupCategories.filter((item) => selectedUploadCategories.has(item.category) || uploadedCategories.has(item.category)).length;
+                        return (
+                          <div key={group} className="rounded-md border bg-white p-4">
+                            <div className="flex items-center justify-between">
+                              <strong className="text-zai-ink">{group}</strong>
+                              <Chip size="small" color={completed === groupCategories.length ? "success" : completed > 0 ? "warning" : "default"} label={`${completed}/${groupCategories.length}`} />
+                            </div>
+                            <div className="mt-3 grid gap-2">
+                              {groupCategories.map((item) => (
+                                <div key={item.category} className="flex items-center justify-between gap-2 text-sm">
+                                  <span className="text-slate-600">{item.label}</span>
+                                  <Chip size="small" variant="outlined" color={selectedUploadCategories.has(item.category) || uploadedCategories.has(item.category) ? "success" : "default"} label={selectedUploadCategories.has(item.category) || uploadedCategories.has(item.category) ? "complete" : "missing"} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </Stack>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button variant="contained" startIcon={<UploadFileIcon />} disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("evidence")}>Upload Evidence Package</Button>
+                  <Button variant="outlined" disabled={evidencePackageFiles.length === 0} onClick={() => setEvidencePackageFiles([])}>Clear Package</Button>
+                </div>
+              </Paper>
+
+              <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+                <Paper elevation={0} className="workspace-panel border p-6">
+                  <Typography variant="h6" fontWeight={900}>Validation Results</Typography>
+                  <div className="mt-4 grid gap-3">
+                    {uploadedEvidenceFiles.length === 0 ? (
+                      <Alert severity="info">Upload evidence to display SHA256 hashes, extracted metadata and format validation results.</Alert>
+                    ) : (
+                      uploadedEvidenceFiles.map((file) => (
+                        <div key={`${file.file_name}-${file.sha256}`} className="rounded-md border bg-white p-4">
+                          <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
+                            <div>
+                              <strong className="block text-zai-ink">{String(file.file_name)}</strong>
+                              <span className="text-xs text-slate-500">{String(file.evidence_group ?? CATEGORY_GROUP[file.category as VerificationFile["category"]] ?? "Evidence")} - {String(file.mime_type)} - {String(file.file_size_bytes)} bytes</span>
+                              <p className="mt-2 break-all text-xs text-slate-600">SHA256: {String(file.sha256 ?? "pending")}</p>
+                            </div>
+                            <Chip color={String(file.format_status) === "valid" ? "success" : "warning"} label={formatStatus(String(file.format_status ?? "validated"))} />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </Paper>
+
+                <Paper elevation={0} className="workspace-panel border p-6">
+                  <Typography variant="h6" fontWeight={900}>Interactive GIS Review</Typography>
+                  <div className="mt-4 overflow-hidden rounded-lg border bg-slate-950 text-white">
+                    <div className="relative h-72 bg-[radial-gradient(circle_at_30%_30%,#166534_0,#14532d_28%,#0f172a_65%)]">
+                      <div className="absolute left-[18%] top-[22%] h-32 w-52 rotate-[-8deg] rounded-[32%] border-4 border-emerald-300 bg-emerald-500/20 shadow-[0_0_40px_rgba(110,231,183,0.35)]" />
+                      <div className="absolute right-8 top-6 rounded bg-sky-500/90 px-2 py-1 text-xs font-bold">Satellite imagery</div>
+                      <div className="absolute bottom-6 left-6 rounded bg-emerald-500/90 px-2 py-1 text-xs font-bold">Forest cover {gisAssessment?.forest_cover_percent ?? "76.10"}%</div>
+                      <div className="absolute bottom-16 right-10 rounded bg-amber-500/90 px-2 py-1 text-xs font-bold">Fire alerts {gisAssessment?.fire_risk_level ?? "low"}</div>
+                      <div className="absolute right-8 top-24 rounded bg-violet-500/90 px-2 py-1 text-xs font-bold">Carbon density {gisAssessment?.carbon_density_tco2e_per_hectare ?? "240.00"}</div>
+                    </div>
+                    <div className="grid gap-2 border-t border-white/10 p-4 text-xs sm:grid-cols-2">
+                      {["Project boundary", "Satellite scene", "Forest cover", "Fire alerts", "Carbon density", "MRV field plots"].map((layer) => (
+                        <div key={layer} className="flex items-center justify-between rounded bg-white/10 px-3 py-2">
+                          <span>{layer}</span>
+                          <Chip size="small" color="success" label="on" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Button className="mt-4" variant="outlined" startIcon={<MapIcon />} onClick={runSelectedGisAssessment} disabled={isLoading || !selectedProject}>Refresh GIS Layers</Button>
+                </Paper>
               </div>
+
+              <div className="grid gap-4 xl:grid-cols-3">
+                {[
+                  ["Automatic Validation", verificationCase?.automatic_validation_status ?? "not_started", "Rules engine checks completeness, dates, formats, duplicate files and package integrity.", () => runVerificationStep("automatic")],
+                  ["AI Assessment", verificationCase?.ai_status ?? "not_started", "AI evaluates anomaly risk, consistency, fraud indicators and confidence for human verification.", () => runVerificationStep("ai")],
+                  ["GIS Review", verificationCase?.gis_status ?? "not_started", "Spatial reviewer validates boundary, satellite layers, forest cover, fire alerts and carbon density.", () => runVerificationStep("gis")],
+                  ["MRV Review", verificationCase?.mrv_status ?? "not_started", "MRV reviewer checks monitoring report, baseline, leakage, permanence and carbon calculations.", () => runVerificationStep("mrv")],
+                  ["Verifier Review", verificationCase?.verifier_status ?? "not_started", "Accredited verifier records independent assurance and signs the verification statement.", () => runVerificationStep("verifier")],
+                  ["ZiCMA Approval", verificationCase?.zicma_status ?? "not_started", "Regulator performs final approval and authorizes registry status update.", () => runVerificationStep("zicma")]
+                ].map(([title, statusValue, description, action]) => (
+                  <Paper key={String(title)} elevation={0} className="border p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <Typography variant="subtitle1" fontWeight={900}>{String(title)}</Typography>
+                      <Chip size="small" color={String(statusValue) === "pass" || String(statusValue) === "approve" ? "success" : String(statusValue) === "not_started" ? "default" : "warning"} label={formatStatus(String(statusValue))} />
+                    </div>
+                    <p className="mt-3 min-h-16 text-sm leading-6 text-slate-600">{String(description)}</p>
+                    <Button className="mt-4" variant="outlined" disabled={isLoading || !verificationCase} onClick={action as () => void}>Run Step</Button>
+                  </Paper>
+                ))}
+              </div>
+
+              <Paper elevation={0} className="workspace-panel border p-6">
+                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                  <Typography variant="h6" fontWeight={900}>Audit Timeline</Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Button variant="outlined" color="error" disabled={isLoading || !verificationCase} onClick={rejectVerificationCase}>Reject</Button>
+                    <Button variant="contained" disabled={isLoading || !verificationCase} onClick={() => runVerificationStep("zicma")}>Approve</Button>
+                    <Button variant="contained" color="success" startIcon={<FactCheckIcon />} onClick={issueCredits} disabled={isLoading || verificationCase?.zicma_status !== "approve"}>Issue Credits</Button>
+                  </Stack>
+                </div>
+                <div className="mt-5 grid gap-3">
+                  {auditEvents.length === 0 ? (
+                    <Alert severity="info">No audit events yet for this verification case.</Alert>
+                  ) : (
+                    auditEvents.map((event) => (
+                      <div key={event.id} className="grid gap-3 rounded-md border bg-white p-4 md:grid-cols-[190px_1fr_auto]">
+                        <span className="text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</span>
+                        <div>
+                          <strong className="block text-zai-ink">{event.event_type}</strong>
+                          <span className="text-sm text-slate-600">{event.action} - {event.outcome}</span>
+                          <p className="mt-1 text-xs text-slate-500">Actor: {event.actor_role ?? "system"} / {event.actor_id ?? "anonymous"}</p>
+                        </div>
+                        <Chip size="small" variant="outlined" label={String(event.metadata?.verification_status ?? event.resource_type)} />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </Paper>
 
               {verificationAssessment && (
                 <Alert severity={verificationAssessment.status === "pass" ? "success" : "warning"}>
@@ -691,9 +980,9 @@ export default function RegistryConsole() {
               )}
             </Stack>
           ) : (
-            <Alert className="mt-6" severity="info">Select or register a project before starting verification.</Alert>
+            <Alert severity="info">Select or register a project before opening a verification case.</Alert>
           )}
-        </Paper>
+        </div>
       ) : activeTab === "registry" ? (
         <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
           <Paper elevation={0} className="border p-6">
