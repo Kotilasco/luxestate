@@ -328,6 +328,8 @@ export default function RegistryConsole() {
       .filter((event) => event.event_type.startsWith("verification.case."))
       .map((event) => event.action)
   );
+  const latestGisEvidence = evidenceRecords.find((record) => record.evidence_type === "gis_boundary_and_mrv");
+  const latestGisValidation = evidenceRecords.find((record) => record.evidence_type === "gis_validation_decision");
 
   async function loadProjects(preferredProjectId?: string) {
     const [healthResponse, projectResponse] = await Promise.all([
@@ -1320,185 +1322,216 @@ export default function RegistryConsole() {
           </Stack>
         </div>
       ) : activeTab === "gis" ? (
-        <Paper elevation={0} className="workspace-panel border p-8">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-            <div>
-              <Typography variant="h5" fontWeight={900}>
-                GIS project intelligence
-              </Typography>
-              <p className="mt-3 max-w-3xl text-slate-600">
-                Run district, forest cover, fire risk, carbon density, and boundary validation for the selected project.
-              </p>
-            </div>
-            <Button variant="contained" startIcon={<MapIcon />} onClick={runSelectedGisAssessment} disabled={isLoading || !selectedProject}>
-              Run GIS Assessment
-            </Button>
-          </div>
-
-          {selectedProject ? (
-            <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_420px]">
-              <Paper elevation={0} className="xl:col-span-2 border p-6">
-                <Box component="form" onSubmit={submitSelectedGisEvidence}>
-                  <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-start">
-                    <div>
-                      <Typography variant="h6" fontWeight={900}>
-                        Submit GIS and MRV evidence
-                      </Typography>
-                      <p className="mt-1 text-sm text-slate-600">
-                        Evidence is recorded in the immutable audit trail before GIS can be marked valid.
-                      </p>
-                    </div>
-                    <Button type="submit" variant="contained" disabled={isLoading}>
-                      Submit Evidence
-                    </Button>
-                  </div>
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <TextField label="Boundary GeoJSON" value={gisEvidenceForm.boundary_geojson} onChange={(event) => updateGisEvidenceField("boundary_geojson", event.target.value)} multiline minRows={4} required />
-                    <Stack spacing={2}>
-                      <TextField label="Satellite scene ID" value={gisEvidenceForm.satellite_scene_id} onChange={(event) => updateGisEvidenceField("satellite_scene_id", event.target.value)} required />
-                      <TextField label="Land-cover source" value={gisEvidenceForm.land_cover_source} onChange={(event) => updateGisEvidenceField("land_cover_source", event.target.value)} required />
-                      <TextField label="Fire-alert source" value={gisEvidenceForm.fire_alert_source} onChange={(event) => updateGisEvidenceField("fire_alert_source", event.target.value)} required />
-                    </Stack>
-                    <TextField label="Field MRV reference" value={gisEvidenceForm.field_mrv_reference} onChange={(event) => updateGisEvidenceField("field_mrv_reference", event.target.value)} required />
-                    <TextField label="Verifier notes" value={gisEvidenceForm.verifier_notes} onChange={(event) => updateGisEvidenceField("verifier_notes", event.target.value)} required />
-                  </div>
-                </Box>
-              </Paper>
-
-              <div className="min-h-[360px] rounded-lg border bg-[linear-gradient(rgba(14,165,233,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(14,165,233,.18)_1px,transparent_1px)] bg-[size:36px_36px] p-6">
-                <div className="flex h-full min-h-[320px] items-center justify-center rounded-md border border-sky-200 bg-white/75">
-                  <div className="text-center">
-                    <MapIcon className="mx-auto text-sky-600" fontSize="large" />
-                    <Typography variant="h6" fontWeight={900} className="mt-3">
-                      {selectedProject.district}, {selectedProject.province}
-                    </Typography>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {gisAssessment
-                        ? `${gisAssessment.centroid_latitude}, ${gisAssessment.centroid_longitude}`
-                        : "Run GIS assessment to calculate centroid, area, and layer risk."}
-                    </p>
-                    {gisAssessment && (
-                      <Chip className="mt-4" color={gisAssessment.boundary_validation_status === "validated" ? "success" : "warning"} label={gisAssessment.boundary_validation_status} />
-                    )}
-                  </div>
-                </div>
+        <div className="grid gap-5">
+          <Paper elevation={0} className="workspace-panel overflow-hidden border bg-slate-950 text-white">
+            <div className="flex flex-col justify-between gap-4 border-b border-white/10 p-5 lg:flex-row lg:items-center">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-200">GIS Operations Workspace</p>
+                <Typography variant="h5" fontWeight={900}>Spatial verification and remote sensing intelligence</Typography>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">
+                  Boundary validation, satellite evidence, forest-cover change, fire alerts, carbon density and MRV field controls for the selected registry project.
+                </p>
               </div>
-
-              <Stack spacing={2}>
-                <div className="rounded-lg border p-5">
-                  <strong className="block text-zai-ink">{selectedProject.project_code}</strong>
-                  <span className="text-sm text-slate-500">Selected registry project</span>
-                </div>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 {gisAssessment ? (
-                  <>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-                      <div className="rounded-lg bg-sky-50 p-4">
-                        <strong className="block text-zai-ink">{gisAssessment.estimated_area_hectares}</strong>
-                        <span className="text-sm text-slate-500">Estimated hectares</span>
-                      </div>
-                      <div className="rounded-lg bg-sky-50 p-4">
-                        <strong className="block text-zai-ink">{gisAssessment.forest_cover_percent}%</strong>
-                        <span className="text-sm text-slate-500">Forest cover profile</span>
-                      </div>
-                      <div className="rounded-lg bg-sky-50 p-4">
-                        <strong className="block text-zai-ink">{gisAssessment.fire_risk_level}</strong>
-                        <span className="text-sm text-slate-500">Fire risk</span>
-                      </div>
-                      <div className="rounded-lg bg-sky-50 p-4">
-                        <strong className="block text-zai-ink">{gisAssessment.carbon_density_tco2e_per_hectare}</strong>
-                        <span className="text-sm text-slate-500">tCO2e per hectare</span>
-                      </div>
-                    </div>
-                    <Alert severity={gisAssessment.boundary_validation_status === "validated" ? "success" : "warning"}>
-                      {gisAssessment.recommendation}
-                    </Alert>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      <Button variant="contained" color="success" onClick={() => decideGisValidation("valid")} disabled={isLoading || evidenceRecords.length === 0}>
-                        Mark GIS Valid
-                      </Button>
-                      <Button variant="outlined" onClick={() => decideGisValidation("requires_revision")} disabled={isLoading || evidenceRecords.length === 0}>
-                        Request Revision
-                      </Button>
-                      <Button variant="outlined" color="error" onClick={() => decideGisValidation("invalid")} disabled={isLoading || evidenceRecords.length === 0}>
-                        Mark Invalid
-                      </Button>
-                    </Stack>
-                  </>
+                  <Chip color="success" icon={<LockIcon />} label="Assessment generated" />
                 ) : (
-                  <Alert severity="info">No GIS assessment has been run for this selected project yet.</Alert>
+                  <Button variant="contained" startIcon={<MapIcon />} onClick={runSelectedGisAssessment} disabled={isLoading || !selectedProject}>
+                    Run GIS Assessment
+                  </Button>
                 )}
+                <Chip color={latestGisValidation?.status === "valid" ? "success" : latestGisValidation ? "warning" : "default"} label={latestGisValidation ? `GIS ${formatStatus(latestGisValidation.status)}` : "GIS not validated"} />
               </Stack>
-
-              {gisAssessment && (
-                <div className="xl:col-span-2 grid gap-4 lg:grid-cols-2">
-                  <div className="lg:col-span-2">
-                    <Typography variant="h6" fontWeight={800}>
-                      Evidence ledger
-                    </Typography>
-                    <Stack spacing={1.5} className="mt-3">
-                      {evidenceRecords.filter((record) => record.evidence_type.includes("gis")).length === 0 ? (
-                        <Alert severity="info">No GIS evidence submitted yet.</Alert>
-                      ) : (
-                        evidenceRecords
-                          .filter((record) => record.evidence_type.includes("gis"))
-                          .map((record) => (
-                            <div key={record.id} className="rounded-lg border p-4">
-                              <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
-                                <div>
-                                  <strong className="block text-zai-ink">{record.evidence_type}</strong>
-                                  <span className="text-sm text-slate-600">{record.status} - {new Date(record.created_at).toLocaleString()}</span>
-                                </div>
-                                <Chip size="small" label={record.status} color={record.status === "valid" ? "success" : "primary"} variant="outlined" />
-                              </div>
-                            </div>
-                          ))
-                      )}
-                    </Stack>
-                  </div>
-                  <div>
-                    <Typography variant="h6" fontWeight={800}>
-                      GIS layers
-                    </Typography>
-                    <Stack spacing={1.5} className="mt-3">
-                      {gisAssessment.layers.map((layer) => (
-                        <div key={layer.name} className="rounded-lg border p-4">
-                          <strong className="block text-zai-ink">{layer.name}</strong>
-                          <span className="text-sm text-slate-600">{layer.status} - {layer.summary}</span>
-                        </div>
-                      ))}
-                    </Stack>
-                  </div>
-                  <div>
-                    <Typography variant="h6" fontWeight={800}>
-                      Evidence required
-                    </Typography>
-                    <Stack spacing={1.5} className="mt-3">
-                      {gisAssessment.evidence_sources.map((source) => (
-                        <div key={source} className="rounded-lg border p-4 text-sm text-slate-700">
-                          {source}
-                        </div>
-                      ))}
-                    </Stack>
-                  </div>
-                  <div className="lg:col-span-2">
-                    <Typography variant="h6" fontWeight={800}>
-                      GIS findings
-                    </Typography>
-                    <Stack spacing={1.5} className="mt-3">
-                      {gisAssessment.findings.map((finding) => (
-                        <div key={finding} className="rounded-lg border p-4 text-sm text-slate-700">
-                          {finding}
-                        </div>
-                      ))}
-                    </Stack>
-                  </div>
-                </div>
-              )}
             </div>
-          ) : (
-            <Alert className="mt-6" severity="info">Select or register a project before running GIS assessment.</Alert>
+
+            {selectedProject ? (
+              <div className="grid min-h-[680px] xl:grid-cols-[280px_1fr_340px]">
+                <aside className="border-r border-white/10 bg-slate-900 p-4">
+                  <div className="rounded-md bg-white/10 p-4">
+                    <span className="text-xs uppercase tracking-wider text-slate-300">Project</span>
+                    <strong className="mt-1 block text-lg">{selectedProject.project_code}</strong>
+                    <p className="mt-1 text-xs leading-5 text-slate-300">{selectedProject.title}</p>
+                  </div>
+
+                  <Typography className="mt-5" variant="subtitle2" fontWeight={900}>Layer Stack</Typography>
+                  <Stack spacing={1.2} className="mt-3">
+                    {[
+                      ["Project boundary", "Vector", gisAssessment?.boundary_validation_status ?? "pending", 96],
+                      ["Sentinel-2 composite", "Satellite", gisAssessment ? "loaded" : "ready", 92],
+                      ["Forest cover", "Raster", `${gisAssessment?.forest_cover_percent ?? "pending"}%`, 78],
+                      ["NASA FIRMS fire alerts", "Risk", gisAssessment?.fire_risk_level ?? "pending", gisAssessment?.fire_risk_level === "high" ? 88 : 42],
+                      ["Carbon density", "Model", gisAssessment?.carbon_density_tco2e_per_hectare ?? "pending", 74],
+                      ["MRV field plots", "Survey", latestGisEvidence ? "submitted" : "missing", latestGisEvidence ? 100 : 25]
+                    ].map(([name, type, statusValue, opacity]) => (
+                      <div key={String(name)} className="rounded-md border border-white/10 bg-white/5 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <strong className="block text-sm">{name}</strong>
+                            <span className="text-xs text-slate-400">{type} - {statusValue}</span>
+                          </div>
+                          <Chip size="small" color={String(statusValue).includes("missing") || String(statusValue).includes("pending") ? "default" : "success"} label="on" />
+                        </div>
+                        <LinearProgress variant="determinate" value={Number(opacity)} sx={{ height: 4, borderRadius: 4, mt: 1.5 }} />
+                      </div>
+                    ))}
+                  </Stack>
+
+                  <Typography className="mt-5" variant="subtitle2" fontWeight={900}>Basemaps</Typography>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    {["Imagery", "Terrain", "Land cover", "Hybrid"].map((basemap) => (
+                      <button key={basemap} type="button" className={`rounded border border-white/10 px-3 py-2 text-left ${basemap === "Imagery" ? "bg-sky-500 text-white" : "bg-white/5 text-slate-300"}`}>
+                        {basemap}
+                      </button>
+                    ))}
+                  </div>
+                </aside>
+
+                <section className="relative overflow-hidden bg-slate-950">
+                  <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)] bg-[size:42px_42px]" />
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_38%_42%,rgba(22,163,74,.72)_0,rgba(22,101,52,.38)_28%,rgba(15,23,42,.2)_56%,rgba(15,23,42,.9)_100%)]" />
+                  <div className="absolute left-[22%] top-[18%] h-[280px] w-[420px] rotate-[-8deg] rounded-[28%] border-4 border-emerald-300 bg-emerald-400/20 shadow-[0_0_70px_rgba(52,211,153,.42)]" />
+                  <div className="absolute left-[31%] top-[30%] h-24 w-40 rotate-[-11deg] rounded-full bg-lime-300/25 blur-sm" />
+                  <div className="absolute left-[42%] top-[44%] h-20 w-32 rotate-[-18deg] rounded-full bg-emerald-200/20 blur-md" />
+                  <div className="absolute right-[19%] top-[22%] h-4 w-4 rounded-full bg-amber-300 shadow-[0_0_30px_rgba(252,211,77,.95)]" />
+                  <div className="absolute right-[28%] bottom-[30%] h-3 w-3 rounded-full bg-red-400 shadow-[0_0_26px_rgba(248,113,113,.95)]" />
+                  <div className="absolute left-[18%] bottom-[24%] h-3 w-3 rounded-full bg-sky-300 shadow-[0_0_24px_rgba(125,211,252,.9)]" />
+
+                  <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+                    <Chip icon={<SatelliteAltIcon />} label="Sentinel-2 L2A" color="primary" />
+                    <Chip icon={<LayersIcon />} label="6 layers active" color="success" />
+                    <Chip icon={<WarningAmberIcon />} label={`Fire risk ${gisAssessment?.fire_risk_level ?? "pending"}`} color={gisAssessment?.fire_risk_level === "high" ? "warning" : "default"} />
+                  </div>
+
+                  <div className="absolute right-4 top-4 rounded-md border border-white/10 bg-black/55 p-3 text-xs backdrop-blur">
+                    <div className="font-bold text-white">Map Inspector</div>
+                    <div className="mt-2 text-slate-300">Lat: {gisAssessment?.centroid_latitude ?? "pending"}</div>
+                    <div className="text-slate-300">Lng: {gisAssessment?.centroid_longitude ?? "pending"}</div>
+                    <div className="text-slate-300">Area: {gisAssessment?.estimated_area_hectares ?? "pending"} ha</div>
+                    <div className="text-slate-300">CRS: EPSG:4326</div>
+                  </div>
+
+                  <div className="absolute bottom-4 left-4 right-4 grid gap-3 lg:grid-cols-4">
+                    {[
+                      ["Forest cover", `${gisAssessment?.forest_cover_percent ?? "--"}%`],
+                      ["Carbon density", gisAssessment?.carbon_density_tco2e_per_hectare ?? "--"],
+                      ["Boundary", gisAssessment?.boundary_validation_status ?? "pending"],
+                      ["Evidence", latestGisEvidence ? "submitted" : "missing"]
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-md border border-white/10 bg-black/55 p-3 backdrop-blur">
+                        <span className="block text-xs uppercase tracking-wider text-slate-400">{label}</span>
+                        <strong className="mt-1 block text-lg">{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <aside className="border-l border-white/10 bg-slate-900 p-4">
+                  <Typography variant="subtitle1" fontWeight={900}>Analysis Control</Typography>
+                  <Stack spacing={1.5} className="mt-3">
+                    {gisAssessment ? (
+                      <Alert severity={gisAssessment.boundary_validation_status === "validated" ? "success" : "warning"}>{gisAssessment.recommendation}</Alert>
+                    ) : (
+                      <Alert severity="info">Run GIS assessment to generate spatial intelligence for this project.</Alert>
+                    )}
+                    {latestGisEvidence ? (
+                      <Chip color="success" icon={<LockIcon />} label="GIS/MRV evidence submitted" />
+                    ) : (
+                      <Box component="form" onSubmit={submitSelectedGisEvidence} className="rounded-md border border-white/10 bg-white/5 p-3">
+                        <Typography variant="subtitle2" fontWeight={900}>Evidence Intake</Typography>
+                        <Stack spacing={1.2} className="mt-3">
+                          <TextField size="small" label="Boundary GeoJSON" value={gisEvidenceForm.boundary_geojson} onChange={(event) => updateGisEvidenceField("boundary_geojson", event.target.value)} multiline minRows={3} required />
+                          <TextField size="small" label="Satellite scene ID" value={gisEvidenceForm.satellite_scene_id} onChange={(event) => updateGisEvidenceField("satellite_scene_id", event.target.value)} required />
+                          <TextField size="small" label="Land-cover source" value={gisEvidenceForm.land_cover_source} onChange={(event) => updateGisEvidenceField("land_cover_source", event.target.value)} required />
+                          <TextField size="small" label="Fire-alert source" value={gisEvidenceForm.fire_alert_source} onChange={(event) => updateGisEvidenceField("fire_alert_source", event.target.value)} required />
+                          <TextField size="small" label="Field MRV reference" value={gisEvidenceForm.field_mrv_reference} onChange={(event) => updateGisEvidenceField("field_mrv_reference", event.target.value)} required />
+                          <TextField size="small" label="Verifier notes" value={gisEvidenceForm.verifier_notes} onChange={(event) => updateGisEvidenceField("verifier_notes", event.target.value)} required />
+                          <Button type="submit" variant="contained" disabled={isLoading}>Submit Evidence</Button>
+                        </Stack>
+                      </Box>
+                    )}
+
+                    {latestGisValidation?.status === "valid" ? (
+                      <Chip color="success" icon={<LockIcon />} label="GIS validation locked" />
+                    ) : (
+                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                        <Button variant="contained" color="success" onClick={() => decideGisValidation("valid")} disabled={isLoading || !latestGisEvidence}>
+                          Mark Valid
+                        </Button>
+                        <Button variant="outlined" onClick={() => decideGisValidation("requires_revision")} disabled={isLoading || !latestGisEvidence}>
+                          Request Revision
+                        </Button>
+                        <Button variant="outlined" color="error" onClick={() => decideGisValidation("invalid")} disabled={isLoading || !latestGisEvidence}>
+                          Mark Invalid
+                        </Button>
+                      </Stack>
+                    )}
+                  </Stack>
+
+                  <Divider className="my-4 border-white/10" />
+                  <Typography variant="subtitle1" fontWeight={900}>Spatial Findings</Typography>
+                  <Stack spacing={1.2} className="mt-3">
+                    {(gisAssessment?.findings.length ? gisAssessment.findings : ["No generated findings yet."]).map((finding) => (
+                      <div key={finding} className="rounded-md border border-white/10 bg-white/5 p-3 text-sm leading-6 text-slate-200">{finding}</div>
+                    ))}
+                  </Stack>
+                </aside>
+              </div>
+            ) : (
+              <Alert className="m-5" severity="info">Select or register a project before running GIS assessment.</Alert>
+            )}
+          </Paper>
+
+          {selectedProject && (
+            <div className="grid gap-4 xl:grid-cols-3">
+              <Paper elevation={0} className="border p-5">
+                <Typography variant="h6" fontWeight={900}>Evidence Ledger</Typography>
+                <Stack spacing={1.2} className="mt-3">
+                  {evidenceRecords.filter((record) => record.evidence_type.includes("gis")).length === 0 ? (
+                    <Alert severity="info">No GIS evidence submitted yet.</Alert>
+                  ) : (
+                    evidenceRecords
+                      .filter((record) => record.evidence_type.includes("gis"))
+                      .map((record) => (
+                        <div key={record.id} className="rounded-md border p-3">
+                          <strong className="block text-zai-ink">{formatStatus(record.evidence_type)}</strong>
+                          <span className="text-sm text-slate-600">{formatStatus(record.status)} - {new Date(record.created_at).toLocaleString()}</span>
+                        </div>
+                      ))
+                  )}
+                </Stack>
+              </Paper>
+              <Paper elevation={0} className="border p-5">
+                <Typography variant="h6" fontWeight={900}>Layer Health</Typography>
+                <Stack spacing={1.2} className="mt-3">
+                  {(gisAssessment?.layers.length ? gisAssessment.layers : [
+                    { name: "Boundary validation", status: "pending", summary: "Waiting for GIS assessment." },
+                    { name: "Satellite scene", status: "pending", summary: "Waiting for imagery source." },
+                    { name: "Fire alerts", status: "pending", summary: "Waiting for FIRMS source." }
+                  ]).map((layer) => (
+                    <div key={layer.name} className="rounded-md border p-3">
+                      <strong className="block text-zai-ink">{layer.name}</strong>
+                      <span className="text-sm text-slate-600">{formatStatus(layer.status)} - {layer.summary}</span>
+                    </div>
+                  ))}
+                </Stack>
+              </Paper>
+              <Paper elevation={0} className="border p-5">
+                <Typography variant="h6" fontWeight={900}>Required Sources</Typography>
+                <Stack spacing={1.2} className="mt-3">
+                  {(gisAssessment?.evidence_sources.length ? gisAssessment.evidence_sources : [
+                    "Boundary GeoJSON or KML",
+                    "Satellite scene reference",
+                    "Forest cover source",
+                    "Fire alert source",
+                    "Field MRV reference"
+                  ]).map((source) => (
+                    <div key={source} className="rounded-md border p-3 text-sm text-slate-700">{source}</div>
+                  ))}
+                </Stack>
+              </Paper>
+            </div>
           )}
-        </Paper>
+        </div>
       ) : activeTab === "ai" ? (
         <Paper elevation={0} className="workspace-panel border p-8">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
