@@ -201,6 +201,26 @@ export type RegisterCarbonProjectPayload = {
 
 export type WorkflowAction = "submit_for_verification" | "start_verification" | "approve" | "reject" | "suspend";
 
+export type NationalStage = {
+  stage: number;
+  name: string;
+  status: string;
+  maturity_score: number;
+  objective: string;
+  required_capabilities: string[];
+  current_gaps: string[];
+  next_controls: string[];
+};
+
+export type NationalReadiness = {
+  platform: string;
+  jurisdiction: string;
+  maturity_score: number;
+  deployment_position: string;
+  generated_at: string;
+  stages: NationalStage[];
+};
+
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8082";
 
 export async function fetchGatewayHealth(): Promise<{ status: string; service: string }> {
@@ -215,6 +235,14 @@ export async function listCarbonProjects(): Promise<CarbonProject[]> {
   const response = await fetch(`${apiBaseUrl}/api/v1/projects`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Project list failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getNationalReadiness(): Promise<NationalReadiness> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/national-readiness`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`National readiness load failed with ${response.status}`);
   }
   return response.json();
 }

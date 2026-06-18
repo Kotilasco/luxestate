@@ -10,10 +10,13 @@ import GavelIcon from "@mui/icons-material/Gavel";
 import LayersIcon from "@mui/icons-material/Layers";
 import LockIcon from "@mui/icons-material/Lock";
 import MapIcon from "@mui/icons-material/Map";
+import PolicyIcon from "@mui/icons-material/Policy";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SatelliteAltIcon from "@mui/icons-material/SatelliteAlt";
 import SendIcon from "@mui/icons-material/Send";
+import ShieldIcon from "@mui/icons-material/Shield";
+import SummarizeIcon from "@mui/icons-material/Summarize";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
@@ -47,6 +50,7 @@ import {
   decideVerificationStage,
   EvidenceRecord,
   fetchGatewayHealth,
+  getNationalReadiness,
   getVerificationCase,
   GisAssessment,
   GisEvidencePayload,
@@ -66,6 +70,7 @@ import {
   uploadVerificationEvidenceFiles,
   validateAiReview,
   validateGisEvidence,
+  NationalReadiness,
   VerificationAssessment,
   VerificationCase,
   VerificationCaseAction,
@@ -208,7 +213,10 @@ const workspaceLinks = [
   ["ai", "AI Review", <AnalyticsIcon key="ai" />],
   ["marketplace", "Marketplace", <PaymentsIcon key="marketplace" />],
   ["blockchain", "Ledger", <AccountTreeIcon key="ledger" />],
-  ["compliance", "Compliance", <GavelIcon key="compliance" />]
+  ["compliance", "Compliance", <GavelIcon key="compliance" />],
+  ["national", "National Stages", <PolicyIcon key="national" />],
+  ["article6", "Article 6", <SummarizeIcon key="article6" />],
+  ["oversight", "Oversight", <ShieldIcon key="oversight" />]
 ];
 
 type FormState = {
@@ -274,6 +282,7 @@ export default function RegistryConsole() {
   const [credits, setCredits] = useState<CreditBatch[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [evidenceRecords, setEvidenceRecords] = useState<EvidenceRecord[]>([]);
+  const [nationalReadiness, setNationalReadiness] = useState<NationalReadiness | null>(null);
   const [gisAssessment, setGisAssessment] = useState<GisAssessment | null>(null);
   const [aiReview, setAiReview] = useState<AiReview | null>(null);
   const [verificationCase, setVerificationCase] = useState<VerificationCase | null>(null);
@@ -332,11 +341,13 @@ export default function RegistryConsole() {
   const latestGisValidation = evidenceRecords.find((record) => record.evidence_type === "gis_validation_decision");
 
   async function loadProjects(preferredProjectId?: string) {
-    const [healthResponse, projectResponse] = await Promise.all([
+    const [healthResponse, projectResponse, readinessResponse] = await Promise.all([
       fetchGatewayHealth(),
-      listCarbonProjects()
+      listCarbonProjects(),
+      getNationalReadiness()
     ]);
     setHealth(`${healthResponse.status} (${healthResponse.service})`);
+    setNationalReadiness(readinessResponse);
     setProjects(projectResponse);
     const nextSelected = preferredProjectId ?? selectedProjectId ?? projectResponse[0]?.id ?? null;
     setSelectedProjectId(nextSelected);
@@ -1932,6 +1943,123 @@ export default function RegistryConsole() {
             <Alert className="mt-6" severity="info">Select or register a project before running AI review.</Alert>
           )}
         </Paper>
+      ) : activeTab === "national" ? (
+        <div className="grid gap-5">
+          <Paper elevation={0} className="border p-6">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+              <div>
+                <Typography variant="h5" fontWeight={900}>National Deployment Stages</Typography>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                  Official readiness controls for moving ZAI-CTS from controlled pilot to national carbon registry infrastructure.
+                </p>
+              </div>
+              <div className="rounded-md bg-slate-950 p-4 text-white">
+                <span className="text-xs uppercase tracking-wider text-slate-300">Current maturity</span>
+                <strong className="mt-1 block text-3xl">{nationalReadiness?.maturity_score ?? "--"}/100</strong>
+              </div>
+            </div>
+            <Alert className="mt-4" severity="warning">{nationalReadiness?.deployment_position ?? "Readiness data is loading."}</Alert>
+          </Paper>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {(nationalReadiness?.stages ?? []).map((stage) => (
+              <Paper key={stage.stage} elevation={0} className="border p-5 transition hover:-translate-y-0.5 hover:shadow-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Stage {stage.stage}</span>
+                    <Typography variant="h6" fontWeight={900}>{stage.name}</Typography>
+                  </div>
+                  <Chip color={stage.status === "not_started" ? "default" : stage.status === "blocked" ? "error" : "warning"} label={formatStatus(stage.status)} />
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{stage.objective}</p>
+                <LinearProgress className="mt-4" variant="determinate" value={stage.maturity_score} sx={{ height: 8, borderRadius: 8 }} />
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <div>
+                    <strong className="text-sm text-zai-ink">Capabilities</strong>
+                    {stage.required_capabilities.slice(0, 4).map((item) => <p key={item} className="mt-2 text-xs text-slate-600">{item}</p>)}
+                  </div>
+                  <div>
+                    <strong className="text-sm text-zai-ink">Gaps</strong>
+                    {stage.current_gaps.slice(0, 4).map((item) => <p key={item} className="mt-2 text-xs text-slate-600">{item}</p>)}
+                  </div>
+                  <div>
+                    <strong className="text-sm text-zai-ink">Next Controls</strong>
+                    {stage.next_controls.slice(0, 4).map((item) => <p key={item} className="mt-2 text-xs text-slate-600">{item}</p>)}
+                  </div>
+                </div>
+              </Paper>
+            ))}
+          </div>
+        </div>
+      ) : activeTab === "article6" ? (
+        <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+          <Paper elevation={0} className="border p-6">
+            <Typography variant="h5" fontWeight={900}>Article 6 and National Accounting Control Centre</Typography>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Tracks host-country authorization, ITMO eligibility, corresponding adjustment controls, NDC sector allocation and BTR reporting readiness.
+            </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-4">
+              {[
+                ["Authorizations", "0", "No Article 6 authorization workflow live"],
+                ["ITMO Transfers", "0", "First transfer ledger required"],
+                ["CA Status", "not started", "Corresponding adjustment module missing"],
+                ["NDC Sectors", "0", "National accounting snapshots required"]
+              ].map(([label, value, note]) => (
+                <div key={label} className="rounded-md border bg-slate-50 p-4">
+                  <span className="text-xs uppercase tracking-wider text-slate-500">{label}</span>
+                  <strong className="mt-1 block text-2xl text-zai-ink">{value}</strong>
+                  <p className="mt-1 text-xs text-slate-600">{note}</p>
+                </div>
+              ))}
+            </div>
+          </Paper>
+          <Paper elevation={0} className="border p-6">
+            <Typography variant="h6" fontWeight={900}>Required Article 6 Gates</Typography>
+            <Stack spacing={1.2} className="mt-3">
+              {[
+                "Host-country authorization decision",
+                "Use purpose and NDC treatment",
+                "First-transfer approval",
+                "Corresponding adjustment status",
+                "UNFCCC annual/regular information export",
+                "Double-counting prevention reconciliation"
+              ].map((item) => (
+                <div key={item} className="rounded-md border p-3 text-sm text-slate-700">{item}</div>
+              ))}
+            </Stack>
+          </Paper>
+        </div>
+      ) : activeTab === "oversight" ? (
+        <div className="grid gap-5 xl:grid-cols-3">
+          <Paper elevation={0} className="border p-6 xl:col-span-2">
+            <Typography variant="h5" fontWeight={900}>Regulator Oversight and Compliance Command</Typography>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              National regulator view for enforcement cases, accreditation, fraud monitoring, sanctions, public transparency and operational risk.
+            </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {[
+                ["Open enforcement cases", "0"],
+                ["Verifier accreditations", "0"],
+                ["Market conduct alerts", "0"],
+                ["Fraud risk alerts", String(aiDocumentChecks.filter((check) => String(check.ownership_status) !== "matched").length)],
+                ["Pending appeals", "0"],
+                ["Public disclosures", "0"]
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border bg-white p-4">
+                  <strong className="block text-2xl text-zai-ink">{value}</strong>
+                  <span className="text-sm text-slate-500">{label}</span>
+                </div>
+              ))}
+            </div>
+          </Paper>
+          <Paper elevation={0} className="border p-6">
+            <Typography variant="h6" fontWeight={900}>Deployment Blockers</Typography>
+            <Stack spacing={1.2} className="mt-3">
+              {(nationalReadiness?.stages ?? []).flatMap((stage) => stage.current_gaps.slice(0, 1)).slice(0, 8).map((gap) => (
+                <Alert key={gap} severity="warning">{gap}</Alert>
+              ))}
+            </Stack>
+          </Paper>
+        </div>
       ) : (
         <Paper elevation={0} className="border p-8">
           <Typography variant="h5" fontWeight={900}>
