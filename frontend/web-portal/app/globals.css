@@ -67,3 +67,11 @@ body {
 .MuiButton-contained {
   animation: soft-pulse 3.4s ease-in-out infinite;
 }
+
+.map-marker {
+  animation: rise-in 360ms ease-out both, soft-pulse 2.8s ease-in-out infinite;
+}
+
+.gis-layer-card:hover {
+  cursor: pointer;
+}

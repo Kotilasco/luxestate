@@ -678,7 +678,7 @@ export default function RegistryConsole() {
   }
 
   return (
-    <section id="registry" className="enterprise-shell mx-auto max-w-7xl px-6 py-10">
+    <section id="registry" className="enterprise-shell w-full px-4 py-6 lg:px-6 2xl:px-8">
       <div className="hero-band mb-6 flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-zai-blue">ZAI-CTS Operations Portal</p>
@@ -968,7 +968,9 @@ export default function RegistryConsole() {
                         <div className="relative h-64 bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_38%,#14532d_100%)]">
                           <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.12)_1px,transparent_1px)] [background-size:30px_30px]" />
                           <div className="absolute left-[22%] top-[20%] h-36 w-56 rotate-[-10deg] rounded-[28%] border-4 border-emerald-300 bg-emerald-400/20 shadow-[0_0_48px_rgba(52,211,153,0.45)]" />
-                          <div className="absolute right-[20%] top-[28%] h-4 w-4 rounded-full bg-amber-300 shadow-[0_0_24px_rgba(252,211,77,0.9)]" />
+                          <div className="map-marker absolute right-[14%] top-[24%] rounded-full bg-amber-300 px-2 py-1 text-[11px] font-bold text-slate-950 shadow-[0_0_24px_rgba(252,211,77,0.9)] transition duration-200 hover:scale-110">
+                            Fire alert
+                          </div>
                           <div className="absolute bottom-4 left-4 rounded bg-black/60 px-3 py-2 text-xs">Forest {gisAssessment?.forest_cover_percent ?? "--"}%</div>
                           <div className="absolute bottom-4 right-4 rounded bg-black/60 px-3 py-2 text-xs">Fire {gisAssessment?.fire_risk_level ?? "pending"}</div>
                         </div>
@@ -1592,11 +1594,11 @@ export default function RegistryConsole() {
         </div>
       ) : activeTab === "gis" ? (
         <div className="grid gap-5">
-          <Paper elevation={0} className="workspace-panel overflow-hidden border bg-slate-950 text-white">
+          <Paper elevation={0} className="overflow-hidden border border-slate-800 !bg-slate-950 text-white shadow-2xl">
             <div className="flex flex-col justify-between gap-4 border-b border-white/10 p-5 lg:flex-row lg:items-center">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-200">GIS Operations Workspace</p>
-                <Typography variant="h5" fontWeight={900}>Spatial verification and remote sensing intelligence</Typography>
+                <Typography className="!text-white" variant="h5" fontWeight={900}>Spatial verification and remote sensing intelligence</Typography>
                 <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">
                   Boundary validation, satellite evidence, forest-cover change, fire alerts, carbon density and MRV field controls for the selected registry project.
                 </p>
@@ -1622,7 +1624,7 @@ export default function RegistryConsole() {
                     <p className="mt-1 text-xs leading-5 text-slate-300">{selectedProject.title}</p>
                   </div>
 
-                  <Typography className="mt-5" variant="subtitle2" fontWeight={900}>Layer Stack</Typography>
+                  <Typography className="mt-5 !text-white" variant="subtitle2" fontWeight={900}>Layer Stack</Typography>
                   <Stack spacing={1.2} className="mt-3">
                     {[
                       ["Project boundary", "Vector", gisAssessment?.boundary_validation_status ?? "pending", 96],
@@ -1632,7 +1634,7 @@ export default function RegistryConsole() {
                       ["Carbon density", "Model", gisAssessment?.carbon_density_tco2e_per_hectare ?? "pending", 74],
                       ["MRV field plots", "Survey", latestGisEvidence ? "submitted" : "missing", latestGisEvidence ? 100 : 25]
                     ].map(([name, type, statusValue, opacity]) => (
-                      <div key={String(name)} className="rounded-md border border-white/10 bg-white/5 p-3">
+                      <div key={String(name)} className="gis-layer-card rounded-md border border-white/10 bg-white/5 p-3 transition duration-200 hover:-translate-y-0.5 hover:border-sky-300/60 hover:bg-white/10 hover:shadow-lg">
                         <div className="flex items-center justify-between gap-2">
                           <div>
                             <strong className="block text-sm">{name}</strong>
@@ -1645,10 +1647,10 @@ export default function RegistryConsole() {
                     ))}
                   </Stack>
 
-                  <Typography className="mt-5" variant="subtitle2" fontWeight={900}>Basemaps</Typography>
+                  <Typography className="mt-5 !text-white" variant="subtitle2" fontWeight={900}>Basemaps</Typography>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                     {["Imagery", "Terrain", "Land cover", "Hybrid"].map((basemap) => (
-                      <button key={basemap} type="button" className={`rounded border border-white/10 px-3 py-2 text-left ${basemap === "Imagery" ? "bg-sky-500 text-white" : "bg-white/5 text-slate-300"}`}>
+                      <button key={basemap} type="button" className={`rounded border border-white/10 px-3 py-2 text-left transition duration-200 hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-500/40 ${basemap === "Imagery" ? "bg-sky-500 text-white" : "bg-white/5 text-slate-300"}`}>
                         {basemap}
                       </button>
                     ))}
@@ -1661,9 +1663,16 @@ export default function RegistryConsole() {
                   <div className="absolute left-[22%] top-[18%] h-[280px] w-[420px] rotate-[-8deg] rounded-[28%] border-4 border-emerald-300 bg-emerald-400/20 shadow-[0_0_70px_rgba(52,211,153,.42)]" />
                   <div className="absolute left-[31%] top-[30%] h-24 w-40 rotate-[-11deg] rounded-full bg-lime-300/25 blur-sm" />
                   <div className="absolute left-[42%] top-[44%] h-20 w-32 rotate-[-18deg] rounded-full bg-emerald-200/20 blur-md" />
-                  <div className="absolute right-[19%] top-[22%] h-4 w-4 rounded-full bg-amber-300 shadow-[0_0_30px_rgba(252,211,77,.95)]" />
-                  <div className="absolute right-[28%] bottom-[30%] h-3 w-3 rounded-full bg-red-400 shadow-[0_0_26px_rgba(248,113,113,.95)]" />
-                  <div className="absolute left-[18%] bottom-[24%] h-3 w-3 rounded-full bg-sky-300 shadow-[0_0_24px_rgba(125,211,252,.9)]" />
+                  <div className="map-marker group absolute right-[14%] top-[20%] rounded-full bg-amber-300 px-2 py-1 text-[11px] font-bold text-slate-950 shadow-[0_0_30px_rgba(252,211,77,.95)] transition duration-200 hover:scale-110">
+                    Fire alert
+                    <span className="ml-1 font-normal">VIIRS</span>
+                  </div>
+                  <div className="map-marker group absolute right-[21%] bottom-[28%] rounded-full bg-red-400 px-2 py-1 text-[11px] font-bold text-white shadow-[0_0_26px_rgba(248,113,113,.95)] transition duration-200 hover:scale-110">
+                    Risk cell
+                  </div>
+                  <div className="map-marker group absolute left-[14%] bottom-[22%] rounded-full bg-sky-300 px-2 py-1 text-[11px] font-bold text-slate-950 shadow-[0_0_24px_rgba(125,211,252,.9)] transition duration-200 hover:scale-110">
+                    MRV plot
+                  </div>
 
                   <div className="absolute left-4 top-4 flex flex-wrap gap-2">
                     <Chip icon={<SatelliteAltIcon />} label="Sentinel-2 L2A" color="primary" />
@@ -1695,9 +1704,13 @@ export default function RegistryConsole() {
                 </section>
 
                 <aside className="border-l border-white/10 bg-slate-900 p-4">
-                  <Typography variant="subtitle1" fontWeight={900}>Analysis Control</Typography>
+                  <Typography className="!text-white" variant="subtitle1" fontWeight={900}>Analysis Control</Typography>
                   <Stack spacing={1.5} className="mt-3">
-                    {gisAssessment ? (
+                    {latestGisValidation?.status === "valid" ? (
+                      <Alert severity="success">GIS validation is complete. Boundary, MRV evidence and spatial review controls are locked in the audit trail.</Alert>
+                    ) : latestGisEvidence ? (
+                      <Alert severity="info">GIS/MRV evidence is submitted. Review the spatial findings, then mark the GIS decision valid, invalid or requiring revision.</Alert>
+                    ) : gisAssessment ? (
                       <Alert severity={gisAssessment.boundary_validation_status === "validated" ? "success" : "warning"}>{gisAssessment.recommendation}</Alert>
                     ) : (
                       <Alert severity="info">Run GIS assessment to generate spatial intelligence for this project.</Alert>
@@ -1737,7 +1750,7 @@ export default function RegistryConsole() {
                   </Stack>
 
                   <Divider className="my-4 border-white/10" />
-                  <Typography variant="subtitle1" fontWeight={900}>Spatial Findings</Typography>
+                  <Typography className="!text-white" variant="subtitle1" fontWeight={900}>Spatial Findings</Typography>
                   <Stack spacing={1.2} className="mt-3">
                     {(gisAssessment?.findings.length ? gisAssessment.findings : ["No generated findings yet."]).map((finding) => (
                       <div key={finding} className="rounded-md border border-white/10 bg-white/5 p-3 text-sm leading-6 text-slate-200">{finding}</div>
