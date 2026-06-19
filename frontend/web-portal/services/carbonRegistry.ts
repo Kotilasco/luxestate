@@ -262,6 +262,7 @@ export type NationalOperations = {
   accounting_snapshots: NationalOperationRecord[];
   stage_decisions: NationalOperationRecord[];
   audit_timeline: NationalOperationRecord[];
+  domain_operations: Record<string, NationalOperationRecord[]>;
 };
 
 export type NationalActionResult = {
@@ -280,6 +281,29 @@ export type RetirementCertificate = {
   quantity_tco2e: number;
   retired_at: string;
   verification_hash: string;
+};
+
+export type EnterpriseRole = {
+  name: string;
+  category: string;
+  permissions: string[];
+};
+
+export type EnterpriseDomain = {
+  key: string;
+  name: string;
+  objective: string;
+  required_controls: string[];
+  primary_roles: string[];
+};
+
+export type EnterpriseArchitecture = {
+  platform: string;
+  regulation_context: string[];
+  lifecycle: string[];
+  roles: EnterpriseRole[];
+  domains: EnterpriseDomain[];
+  generated_at: string;
 };
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8082";
@@ -312,6 +336,14 @@ export async function getNationalOperations(): Promise<NationalOperations> {
   const response = await fetch(`${apiBaseUrl}/api/v1/national-operations`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`National operations load failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getEnterpriseArchitecture(): Promise<EnterpriseArchitecture> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/national-operations/architecture`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Enterprise architecture load failed with ${response.status}`);
   }
   return response.json();
 }
@@ -491,6 +523,25 @@ export function recordStageDecision(stage: number) {
     stage,
     decision: "control_passed",
     notes: `Stage ${stage} minimum operating controls reviewed and marked ready for controlled pilot progression.`
+  });
+}
+
+export function recordEnterpriseDomainControl(domain: string, control: string, title: string, owner: string) {
+  return postNationalOperation(`/domains/${domain}/controls/${control}`, {
+    title,
+    status: "completed",
+    owner,
+    controls: [
+      "Actor and role captured",
+      "Workflow step recorded",
+      "Digital audit metadata stored",
+      "Human accountable decision retained"
+    ],
+    details: {
+      control,
+      source: "enterprise_domain_workspace",
+      regulation_context: "Zimbabwe SI 48 of 2025 and Paris Agreement Article 6"
+    }
   });
 }
 

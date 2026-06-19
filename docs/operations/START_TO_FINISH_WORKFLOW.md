@@ -23,7 +23,35 @@ Core services:
 - Carbon registry service: `http://127.0.0.1:8101`
 - RabbitMQ console: `http://127.0.0.1:15673`
 
-## 2. Establish National Registry Controls
+## 2. Establish Enterprise Identity and Organization Controls
+
+Open `Identity & Users`.
+
+Run the available IAM controls for:
+
+- User registration
+- Login/session management
+- MFA
+- Email verification
+- Account approval/suspension
+- Invitations
+- Profile and digital signatures
+- API keys
+- Configurable RBAC permissions
+
+Open `Organizations`.
+
+Run the organization controls for:
+
+- Organization registration
+- KYB/KYC
+- Organization documents
+- Organization approval
+- Registry account creation
+- Accreditation status
+- Users and administrators within the organization
+
+## 3. Establish National Registry Controls
 
 Open the `National Stages` tab.
 
@@ -43,9 +71,9 @@ Each action records an immutable audit event. After an action is completed, the 
 
 Use the stage cards to record stage decisions after the required controls for that stage have been reviewed.
 
-## 3. Register a Carbon Project
+## 4. Register a Carbon Project
 
-Open the `Registry` tab.
+Open the `Carbon Registry` tab.
 
 Enter project details:
 
@@ -61,7 +89,76 @@ Enter project details:
 
 Submit the project. The project appears in the registry list and becomes selectable across the portal.
 
-## 4. Move Project Through Registry Workflow
+## 5. Move Project Through the Required Lifecycle
+
+Open `Project Lifecycle`.
+
+The system lifecycle is:
+
+1. Organization Registration
+2. Organization Approval
+3. Registry Account Creation
+4. Project Registration
+5. Project Validation
+6. Project Approval
+7. Project Implementation
+8. Monitoring Period
+9. Monitoring Report Submission
+10. Verification Case
+11. Evidence Package Upload
+12. Automatic Validation
+13. AI Assessment
+14. GIS Review
+15. MRV Review
+16. Verifier Decision
+17. ZiCMA Review
+18. Credit Issuance
+19. Credit Registry
+20. Marketplace Listing
+21. Trading
+22. Settlement
+23. Ownership Transfer
+24. Retirement
+25. Article 6 Authorization, if applicable
+26. Corresponding Adjustment
+27. National Reporting
+28. Long-Term Monitoring
+
+## 6. Validate the Project Before Implementation
+
+Open `Validation`.
+
+Complete:
+
+- Methodology review
+- Additionality assessment
+- Financial feasibility
+- Environmental safeguards
+- Social safeguards
+- Stakeholder consultation
+- Land ownership validation
+- Project design review
+- Validation report
+- Validator approval
+
+Only validated projects should proceed to implementation.
+
+## 7. Configure Monitoring
+
+Open `Monitoring`.
+
+Record:
+
+- Monitoring schedule
+- Field inspections
+- IoT data
+- Drone data
+- Satellite monitoring
+- Forest change detection
+- Carbon measurements
+- Monitoring report submission
+
+## 8. Move Project Through Registry Workflow
 
 In the `Dashboard` or `Registry` workflow controls:
 
@@ -72,7 +169,7 @@ In the `Dashboard` or `Registry` workflow controls:
 
 The platform blocks issuance if required verification approvals are missing.
 
-## 5. Submit Evidence Package
+## 9. Submit Evidence Package
 
 Open the `Verification` tab.
 
@@ -98,7 +195,7 @@ Test packages are available in:
 test-evidence-packages
 ```
 
-## 6. Run Verification Review
+## 10. Run Verification Review
 
 In the `Verification` tab, run:
 
@@ -111,7 +208,7 @@ In the `Verification` tab, run:
 
 Every step is role-based and auditable. Buttons lock after completion.
 
-## 7. Run GIS Validation
+## 11. Run GIS Validation
 
 Open the `GIS` tab.
 
@@ -127,7 +224,7 @@ Run GIS assessment and review:
 
 Use GIS evidence submission and validation controls before final approval.
 
-## 8. Run AI Review
+## 12. Run AI Review
 
 Open the `AI Review` tab.
 
@@ -142,7 +239,7 @@ Run AI review for the selected project. The AI service checks:
 
 AI output is decision support only. A regulator must validate or reject the AI review.
 
-## 9. Issue Credits
+## 13. Issue Credits
 
 After verification and ZiCMA approval, issue credits from the registry workflow.
 
@@ -153,9 +250,9 @@ The registry creates:
 - Issuance audit event
 - Blockchain transaction reference placeholder
 
-## 10. Operate Ledger, Marketplace, and Article 6 Controls
+## 14. Operate Credit Registry, Marketplace, Finance, and Article 6 Controls
 
-Open the `Article 6` tab.
+Open `Credit Registry`, `Marketplace`, `Reporting`, and `Article 6 Ops`.
 
 Run the controls in sequence:
 
@@ -169,9 +266,28 @@ Run the controls in sequence:
 
 After retirement, click `Verify Certificate` to check the public retirement certificate endpoint.
 
-## 11. Regulator Oversight
+Open `Marketplace` to complete:
 
-Open the `Oversight` tab.
+- Registry wallet
+- Portfolio
+- Spot/OTC/auction controls
+- Settlement
+- Invoices
+- Payments
+- Fees
+- Transaction history
+- Market analytics
+
+Open `Reporting` for:
+
+- Financial reports
+- Registry reports
+- National climate reports
+- Article 6 and UN reporting preparation
+
+## 15. Regulator Oversight, Appeals, and Reversals
+
+Open `Compliance` and `Appeals`.
 
 Use it to monitor:
 
@@ -188,7 +304,25 @@ Use it to monitor:
 
 Open a compliance case when fraud, duplicate claims, boundary overlap, inflated issuance, verifier conflict, or market misconduct is suspected.
 
-## 12. National Reporting
+Use Compliance for reversal management:
+
+- Forest fires
+- Illegal logging
+- Flood damage
+- Carbon reversal
+- Buffer pool
+- Replacement credits
+- Registry corrections
+
+Use Appeals for:
+
+- Appeal submission
+- Appeal review
+- Independent panel
+- Decision
+- Final resolution
+
+## 16. National Reporting
 
 Use accounting snapshots to reconcile:
 
@@ -201,13 +335,17 @@ Use accounting snapshots to reconcile:
 
 These records support national climate reporting and Article 6 reporting preparation.
 
-## 13. End-to-End Completion Checklist
+## 17. End-to-End Completion Checklist
 
 The system workflow is complete when:
 
 - Registry rulebook is adopted.
+- IAM users, roles, permissions, sessions and signatures are configured.
+- Organization is registered, KYB-reviewed, approved and linked to a registry account.
 - Project developer account is opened.
 - Methodology is approved.
+- Validation is completed before implementation.
+- Monitoring period and monitoring report are recorded.
 - Verifier accreditation is active.
 - Project is registered.
 - Evidence package is uploaded and validated.
@@ -220,7 +358,7 @@ The system workflow is complete when:
 - Public disclosure is published.
 - Audit timeline contains every action.
 
-## 14. Production Caveats
+## 18. Production Caveats
 
 The implemented workflow is now functional for controlled pilot operation. Before official national production deployment, ZAI-CTS still requires:
 

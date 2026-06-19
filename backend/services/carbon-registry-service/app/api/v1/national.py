@@ -50,6 +50,7 @@ class NationalOperationRecord(BaseModel):
 class NationalOperationsResponse(BaseModel):
     generated_at: datetime
     stage_completion: list[dict[str, object]]
+    domain_operations: dict[str, list[NationalOperationRecord]]
     legal_rules: list[NationalOperationRecord]
     public_disclosures: list[NationalOperationRecord]
     appeal_cases: list[NationalOperationRecord]
@@ -71,11 +72,42 @@ class NationalOperationsResponse(BaseModel):
     audit_timeline: list[NationalOperationRecord]
 
 
+class EnterpriseRole(BaseModel):
+    name: str
+    category: str
+    permissions: list[str]
+
+
+class EnterpriseDomain(BaseModel):
+    key: str
+    name: str
+    objective: str
+    required_controls: list[str]
+    primary_roles: list[str]
+
+
+class EnterpriseArchitectureResponse(BaseModel):
+    platform: str
+    regulation_context: list[str]
+    lifecycle: list[str]
+    roles: list[EnterpriseRole]
+    domains: list[EnterpriseDomain]
+    generated_at: datetime
+
+
 class OpenRegistryAccountRequest(BaseModel):
     organization_name: str = Field(min_length=3, max_length=180)
     account_type: str = Field(pattern="^(project_developer|verifier|buyer|broker|regulator|custodian)$")
     kyb_reference: str = Field(min_length=4, max_length=120)
     beneficial_owner_checked: bool = True
+
+
+class EnterpriseControlRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=180)
+    status: str = Field(min_length=3, max_length=80)
+    owner: str = Field(min_length=3, max_length=120)
+    controls: list[str] = Field(min_length=1, max_length=12)
+    details: dict[str, object] = Field(default_factory=dict)
 
 
 class ApproveMethodologyRequest(BaseModel):
@@ -408,6 +440,102 @@ NATIONAL_STAGES = [
 ]
 
 
+ENTERPRISE_LIFECYCLE = [
+    "Organization Registration",
+    "Organization Approval",
+    "Registry Account Creation",
+    "Project Registration",
+    "Project Validation",
+    "Project Approval",
+    "Project Implementation",
+    "Monitoring Period",
+    "Monitoring Report Submission",
+    "Verification Case",
+    "Evidence Package Upload",
+    "Automatic Validation",
+    "AI Assessment",
+    "GIS Review",
+    "MRV Review",
+    "Verifier Decision",
+    "ZiCMA Review",
+    "Credit Issuance",
+    "Credit Registry",
+    "Marketplace Listing",
+    "Trading",
+    "Settlement",
+    "Ownership Transfer",
+    "Retirement",
+    "Article 6 Authorization",
+    "Corresponding Adjustment",
+    "National Reporting",
+    "Long-Term Monitoring",
+]
+
+ENTERPRISE_ROLES = [
+    EnterpriseRole(name="Super Administrator", category="administration", permissions=["*"]),
+    EnterpriseRole(name="ZiCMA Administrator", category="government", permissions=["registry.admin", "article6.approve", "compliance.enforce"]),
+    EnterpriseRole(name="Registry Officer", category="government", permissions=["organizations.review", "projects.review", "credits.issue"]),
+    EnterpriseRole(name="Registry Manager", category="government", permissions=["registry.manage", "credits.manage", "reports.approve"]),
+    EnterpriseRole(name="Project Developer", category="market", permissions=["projects.create", "evidence.upload", "monitoring.submit"]),
+    EnterpriseRole(name="Accredited Validator", category="assurance", permissions=["validation.review", "validation.decide"]),
+    EnterpriseRole(name="Accredited Verifier", category="assurance", permissions=["verification.review", "verification.sign"]),
+    EnterpriseRole(name="GIS Analyst", category="technical", permissions=["gis.review", "gis.lineage.record"]),
+    EnterpriseRole(name="MRV Officer", category="technical", permissions=["mrv.review", "monitoring.inspect"]),
+    EnterpriseRole(name="AI Review Officer", category="technical", permissions=["ai.review", "ai.override"]),
+    EnterpriseRole(name="Compliance Officer", category="government", permissions=["compliance.case.open", "ledger.freeze"]),
+    EnterpriseRole(name="Legal Officer", category="government", permissions=["appeals.review", "rules.adopt"]),
+    EnterpriseRole(name="Marketplace Operator", category="market", permissions=["marketplace.list", "settlement.record"]),
+    EnterpriseRole(name="Finance Officer", category="finance", permissions=["invoices.issue", "payments.reconcile", "fees.configure"]),
+    EnterpriseRole(name="Community Officer", category="community", permissions=["consultation.record", "safeguards.review"]),
+    EnterpriseRole(name="Buyer", category="market", permissions=["portfolio.view", "credits.buy", "credits.retire"]),
+    EnterpriseRole(name="Seller", category="market", permissions=["portfolio.view", "credits.sell"]),
+    EnterpriseRole(name="Auditor", category="assurance", permissions=["audit.view", "reports.export"]),
+    EnterpriseRole(name="Public User", category="public", permissions=["public.registry.view", "certificate.verify"]),
+]
+
+ENTERPRISE_DOMAINS = [
+    EnterpriseDomain(key="dashboard", name="Dashboard", objective="Executive operating picture across registry, market, climate, compliance, GIS and AI work.", required_controls=["executive dashboard", "registry dashboard", "national climate dashboard"], primary_roles=["ZiCMA Administrator", "Registry Manager"]),
+    EnterpriseDomain(key="identity", name="Identity & User Management", objective="Register users, manage sessions, MFA, invitations, approval, suspension, signatures, API keys and RBAC permissions.", required_controls=["user registration", "login", "forgot password", "MFA", "email verification", "account approval", "session management", "permission management"], primary_roles=["Super Administrator", "ZiCMA Administrator"]),
+    EnterpriseDomain(key="organizations", name="Organizations", objective="Register organizations before projects, manage KYB, documents, approval, registry accounts, users and accreditation.", required_controls=["organization registration", "KYB", "organization approval", "registry account creation", "organization documents"], primary_roles=["Registry Officer", "Project Developer"]),
+    EnterpriseDomain(key="carbon-registry", name="Carbon Registry", objective="Maintain the official project registry and methodology-controlled project records.", required_controls=["project registry", "methodology governance", "public registry"], primary_roles=["Registry Officer", "Registry Manager"]),
+    EnterpriseDomain(key="project-lifecycle", name="Project Lifecycle", objective="Enforce the exact national project lifecycle from organization registration to long-term monitoring.", required_controls=ENTERPRISE_LIFECYCLE, primary_roles=["Registry Manager", "Project Developer"]),
+    EnterpriseDomain(key="validation", name="Validation", objective="Separate project validation from verification with methodology, additionality, financial, safeguard, land and design reviews.", required_controls=["methodology review", "additionality", "financial feasibility", "environmental safeguards", "social safeguards", "stakeholder consultation", "land ownership validation", "validation report"], primary_roles=["Accredited Validator", "Registry Officer"]),
+    EnterpriseDomain(key="monitoring", name="Monitoring", objective="Manage monitoring periods, reports, inspections, IoT, drone, satellite, forest change and carbon measurement history.", required_controls=["monitoring schedule", "monitoring report", "field inspection", "IoT data", "drone data", "satellite monitoring", "forest change detection"], primary_roles=["Project Developer", "MRV Officer"]),
+    EnterpriseDomain(key="verification", name="Verification", objective="Operate verification as case management with evidence package, hashing, AI, GIS, MRV, verifier and ZiCMA review.", required_controls=["case dashboard", "evidence package", "automatic validation", "AI review", "GIS review", "MRV review", "digital signatures"], primary_roles=["Accredited Verifier", "ZiCMA Administrator"]),
+    EnterpriseDomain(key="credit-registry", name="Credit Registry", objective="Separate credits from projects and track batches, serials, vintage, owner, status, history, retirement and blockchain reference.", required_controls=["credit batch", "serial numbers", "owner", "status", "transfer history", "retirement"], primary_roles=["Registry Officer", "Registry Manager"]),
+    EnterpriseDomain(key="marketplace", name="Marketplace", objective="Operate wallet, portfolio, listings, spot, OTC, auctions, settlement, invoices, payments, fees and analytics.", required_controls=["wallet", "portfolio", "listings", "spot market", "OTC", "auction", "settlement", "payments"], primary_roles=["Marketplace Operator", "Buyer", "Seller"]),
+    EnterpriseDomain(key="article6", name="Article 6 Operations", objective="Run authorization, ITMOs, export/import approval, corresponding adjustment, national accounting and UN reporting.", required_controls=["authorization", "ITMOs", "export approval", "import approval", "corresponding adjustment", "UN reporting"], primary_roles=["ZiCMA Administrator", "Legal Officer"]),
+    EnterpriseDomain(key="gis", name="GIS Intelligence", objective="Provide interactive maps, boundary drawing/upload, satellite/fire/forest/community/road/water/carbon layers and historical comparison.", required_controls=["boundary drawing", "GeoJSON upload", "shapefile upload", "satellite layers", "fire layers", "forest cover", "carbon density"], primary_roles=["GIS Analyst"]),
+    EnterpriseDomain(key="ai", name="AI Intelligence", objective="Provide decision-support AI with confidence, explanation, evidence, and human override.", required_controls=["PDD assistant", "fraud detection", "leakage detection", "additionality assessment", "document analysis", "satellite analysis", "risk assessment", "price forecasting"], primary_roles=["AI Review Officer", "Registry Manager"]),
+    EnterpriseDomain(key="mrv", name="MRV", objective="Control monitoring, reporting and verification evidence, measurements and field data.", required_controls=["field plots", "carbon measurements", "inspection history", "MRV review"], primary_roles=["MRV Officer"]),
+    EnterpriseDomain(key="compliance", name="Compliance", objective="Handle surveillance, sanctions, fraud, registry corrections, reversals and regulatory cases.", required_controls=["fraud case", "sanctions", "registry correction", "reversal management"], primary_roles=["Compliance Officer"]),
+    EnterpriseDomain(key="appeals", name="Appeals", objective="Make every regulatory decision appealable through submission, review, independent panel, decision and final resolution.", required_controls=["appeal submission", "appeal review", "independent panel", "decision", "final resolution"], primary_roles=["Legal Officer", "Auditor"]),
+    EnterpriseDomain(key="reporting", name="Reporting", objective="Produce financial, registry, marketplace, Article 6, national climate and audit reports.", required_controls=["registry reports", "financial reports", "national climate reports", "UN reports", "audit exports"], primary_roles=["Registry Manager", "Finance Officer", "Auditor"]),
+    EnterpriseDomain(key="administration", name="Administration", objective="Manage configuration, permissions, API keys, workflows, fees, standards and system operations.", required_controls=["permission configuration", "API keys", "workflow configuration", "fee configuration", "audit settings"], primary_roles=["Super Administrator"]),
+]
+
+DOMAIN_STAGE_MAP = {
+    "dashboard": 1,
+    "identity": 2,
+    "organizations": 2,
+    "carbon-registry": 3,
+    "project-lifecycle": 3,
+    "validation": 3,
+    "monitoring": 5,
+    "verification": 5,
+    "credit-registry": 6,
+    "marketplace": 8,
+    "article6": 7,
+    "gis": 4,
+    "ai": 5,
+    "mrv": 5,
+    "compliance": 8,
+    "appeals": 1,
+    "reporting": 7,
+    "administration": 1,
+}
+
+
 @router.get("", response_model=NationalReadinessResponse)
 async def get_national_readiness() -> NationalReadinessResponse:
     score = round(sum(stage.maturity_score for stage in NATIONAL_STAGES) / len(NATIONAL_STAGES))
@@ -418,6 +546,23 @@ async def get_national_readiness() -> NationalReadinessResponse:
         deployment_position="Controlled pilot only. Not yet ready to operate as the official national registry.",
         generated_at=datetime.now(tz=UTC),
         stages=NATIONAL_STAGES,
+    )
+
+
+@operations_router.get("/architecture", response_model=EnterpriseArchitectureResponse)
+async def get_enterprise_architecture() -> EnterpriseArchitectureResponse:
+    return EnterpriseArchitectureResponse(
+        platform="ZAI-CTS",
+        regulation_context=[
+            "Zimbabwe SI 48 of 2025",
+            "Paris Agreement Article 6",
+            "Voluntary carbon market registry operations",
+            "National climate accounting and public registry transparency",
+        ],
+        lifecycle=ENTERPRISE_LIFECYCLE,
+        roles=ENTERPRISE_ROLES,
+        domains=ENTERPRISE_DOMAINS,
+        generated_at=datetime.now(tz=UTC),
     )
 
 
@@ -438,6 +583,17 @@ def _operation_record(event: object) -> NationalOperationRecord:
 
 def _filter_records(records: list[NationalOperationRecord], operation_type: str) -> list[NationalOperationRecord]:
     return [record for record in records if record.operation_type == operation_type]
+
+
+def _domain_records(records: list[NationalOperationRecord]) -> dict[str, list[NationalOperationRecord]]:
+    return {
+        domain.key: [
+            record
+            for record in records
+            if record.operation_type == "domain_control" and record.metadata.get("domain") == domain.key
+        ]
+        for domain in ENTERPRISE_DOMAINS
+    }
 
 
 def _stage_completion(records: list[NationalOperationRecord]) -> list[dict[str, object]]:
@@ -513,6 +669,7 @@ async def get_national_operations(
     return NationalOperationsResponse(
         generated_at=datetime.now(tz=UTC),
         stage_completion=_stage_completion(records),
+        domain_operations=_domain_records(records),
         legal_rules=_filter_records(records, "registry_rule"),
         public_disclosures=_filter_records(records, "public_disclosure"),
         appeal_cases=_filter_records(records, "appeal_case"),
@@ -532,6 +689,43 @@ async def get_national_operations(
         accounting_snapshots=_filter_records(records, "accounting_snapshot"),
         stage_decisions=_filter_records(records, "stage_decision"),
         audit_timeline=records[:50],
+    )
+
+
+@operations_router.post("/domains/{domain}/controls/{control}", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+async def record_domain_control(
+    domain: str,
+    control: str,
+    request: EnterpriseControlRequest,
+    audit_writer: AuditWriter = Depends(get_audit_writer),
+    current_user: CurrentUser = Depends(get_current_user),
+    x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
+) -> NationalActionResponse:
+    if domain not in DOMAIN_STAGE_MAP:
+        return NationalActionResponse(
+            id=str(uuid4()),
+            status="rejected",
+            message="Unknown enterprise domain.",
+            generated_at=datetime.now(tz=UTC),
+        )
+    domain_name = next(item.name for item in ENTERPRISE_DOMAINS if item.key == domain)
+    return await _write_operation(
+        payload={
+            "operation_type": "domain_control",
+            "status": request.status,
+            "title": request.title,
+            "stage": DOMAIN_STAGE_MAP[domain],
+            "owner": request.owner,
+            "controls": request.controls,
+            "message": f"{domain_name} control recorded.",
+            "domain": domain,
+            "domain_name": domain_name,
+            "control": control,
+            "details": request.details,
+        },
+        audit_writer=audit_writer,
+        current_user=current_user,
+        x_correlation_id=x_correlation_id,
     )
 
 

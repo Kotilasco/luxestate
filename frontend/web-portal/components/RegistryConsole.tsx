@@ -55,7 +55,9 @@ import {
   CreditBatch,
   decideVerificationStage,
   EvidenceRecord,
+  EnterpriseArchitecture,
   fetchGatewayHealth,
+  getEnterpriseArchitecture,
   getNationalOperations,
   getNationalReadiness,
   getVerificationCase,
@@ -77,6 +79,7 @@ import {
   publishPublicDisclosure,
   recordGisProcessingJob,
   recordMarketSettlement,
+  recordEnterpriseDomainControl,
   registerCarbonProject,
   recordStageDecision,
   recordVerificationCaseAction,
@@ -228,16 +231,24 @@ const statusStep: Record<string, number> = {
 
 const workspaceLinks = [
   ["dashboard", "Dashboard", <DashboardIcon key="dashboard" />],
-  ["registry", "Registry", <VerifiedIcon key="registry" />],
+  ["identity", "Identity & Users", <ShieldIcon key="identity" />],
+  ["organizations", "Organizations", <AccountTreeIcon key="organizations" />],
+  ["carbon-registry", "Carbon Registry", <VerifiedIcon key="carbon-registry" />],
+  ["project-lifecycle", "Project Lifecycle", <FactCheckIcon key="project-lifecycle" />],
+  ["validation", "Validation", <AssignmentTurnedInIcon key="validation" />],
+  ["monitoring", "Monitoring", <SatelliteAltIcon key="monitoring" />],
   ["verification", "Verification", <AssignmentTurnedInIcon key="verification" />],
-  ["gis", "GIS", <MapIcon key="gis" />],
-  ["ai", "AI Review", <AnalyticsIcon key="ai" />],
+  ["credit-registry", "Credit Registry", <AccountTreeIcon key="credit-registry" />],
   ["marketplace", "Marketplace", <PaymentsIcon key="marketplace" />],
-  ["blockchain", "Ledger", <AccountTreeIcon key="ledger" />],
+  ["article6", "Article 6 Ops", <SummarizeIcon key="article6" />],
+  ["gis", "GIS Intelligence", <MapIcon key="gis" />],
+  ["ai", "AI Intelligence", <AnalyticsIcon key="ai" />],
+  ["mrv", "MRV", <UploadFileIcon key="mrv" />],
   ["compliance", "Compliance", <GavelIcon key="compliance" />],
-  ["national", "National Stages", <PolicyIcon key="national" />],
-  ["article6", "Article 6", <SummarizeIcon key="article6" />],
-  ["oversight", "Oversight", <ShieldIcon key="oversight" />]
+  ["appeals", "Appeals", <PolicyIcon key="appeals" />],
+  ["reporting", "Reporting", <SummarizeIcon key="reporting" />],
+  ["administration", "Administration", <ShieldIcon key="administration" />],
+  ["national", "National Stages", <PolicyIcon key="national" />]
 ];
 
 type FormState = {
@@ -305,6 +316,7 @@ export default function RegistryConsole() {
   const [evidenceRecords, setEvidenceRecords] = useState<EvidenceRecord[]>([]);
   const [nationalReadiness, setNationalReadiness] = useState<NationalReadiness | null>(null);
   const [nationalOperations, setNationalOperations] = useState<NationalOperations | null>(null);
+  const [enterpriseArchitecture, setEnterpriseArchitecture] = useState<EnterpriseArchitecture | null>(null);
   const [nationalActionKey, setNationalActionKey] = useState<string | null>(null);
   const [certificateLookup, setCertificateLookup] = useState<string | null>(null);
   const [gisAssessment, setGisAssessment] = useState<GisAssessment | null>(null);
@@ -336,6 +348,13 @@ export default function RegistryConsole() {
     () => new Set((nationalOperations?.audit_timeline ?? []).map((record) => record.operation_type)),
     [nationalOperations]
   );
+  const activeEnterpriseDomain = useMemo(
+    () => enterpriseArchitecture?.domains.find((domain) => domain.key === activeTab) ?? null,
+    [enterpriseArchitecture, activeTab]
+  );
+  const activeDomainOperations = activeEnterpriseDomain
+    ? nationalOperations?.domain_operations?.[activeEnterpriseDomain.key] ?? []
+    : [];
 
   const activeStep = selectedProject ? statusStep[selectedProject.status] ?? 0 : 0;
   const totalIssued = credits.reduce((sum, batch) => sum + Number(batch.quantity_tco2e), 0);
@@ -370,14 +389,16 @@ export default function RegistryConsole() {
   const latestGisValidation = evidenceRecords.find((record) => record.evidence_type === "gis_validation_decision");
 
   async function loadProjects(preferredProjectId?: string) {
-    const [healthResponse, projectResponse, readinessResponse] = await Promise.all([
+    const [healthResponse, projectResponse, readinessResponse, architectureResponse] = await Promise.all([
       fetchGatewayHealth(),
       listCarbonProjects(),
-      getNationalReadiness()
+      getNationalReadiness(),
+      getEnterpriseArchitecture()
     ]);
     const operationsResponse = await getNationalOperations();
     setHealth(`${healthResponse.status} (${healthResponse.service})`);
     setNationalReadiness(readinessResponse);
+    setEnterpriseArchitecture(architectureResponse);
     setNationalOperations(operationsResponse);
     setProjects(projectResponse);
     const nextSelected = preferredProjectId ?? selectedProjectId ?? projectResponse[0]?.id ?? null;
@@ -440,6 +461,21 @@ export default function RegistryConsole() {
       setMessage({ type: "success", text: "Public retirement certificate verified." });
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Certificate lookup failed." });
+    } finally {
+      setNationalActionKey(null);
+    }
+  }
+
+  async function runEnterpriseControl(domain: string, control: string, title: string, owner: string) {
+    const key = `${domain}:${control}`;
+    setNationalActionKey(key);
+    setMessage(null);
+    try {
+      const result = await recordEnterpriseDomainControl(domain, control, title, owner);
+      setNationalOperations(await getNationalOperations());
+      setMessage({ type: "success", text: result.message });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Enterprise control failed." });
     } finally {
       setNationalActionKey(null);
     }
@@ -1493,7 +1529,7 @@ export default function RegistryConsole() {
             <Alert severity="info">Select or register a project before opening a verification case.</Alert>
           )}
         </div>
-      ) : activeTab === "registry" ? (
+      ) : activeTab === "carbon-registry" ? (
         <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
           <Paper elevation={0} className="border p-6">
             <Box component="form" onSubmit={submitProject}>
@@ -2259,32 +2295,89 @@ export default function RegistryConsole() {
           </Paper>
         </div>
       ) : (
-        <Paper elevation={0} className="border p-8">
-          <Typography variant="h5" fontWeight={900}>
-            {workspaceLinks.find(([value]) => value === activeTab)?.[1]} workspace
-          </Typography>
-          <p className="mt-3 max-w-3xl text-slate-600">
-            This section is linked into the workflow console. Select a registered project in the Registry tab first, then use the operational data below for the selected project.
-          </p>
-          {selectedProject ? (
-            <div className="mt-6 grid gap-4 md:grid-cols-3">
-              <div className="rounded-lg border p-5">
-                <strong className="block text-zai-ink">{selectedProject.project_code}</strong>
-                <span className="text-sm text-slate-500">Selected project</span>
+        <div className="grid gap-5">
+          <Paper elevation={0} className="border p-6">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+              <div>
+                <Typography variant="h5" fontWeight={900}>
+                  {activeEnterpriseDomain?.name ?? workspaceLinks.find(([value]) => value === activeTab)?.[1]}
+                </Typography>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                  {activeEnterpriseDomain?.objective ?? "Enterprise workspace for the selected operational domain."}
+                </p>
               </div>
-              <div className="rounded-lg border p-5">
-                <strong className="block text-zai-ink">{formatStatus(selectedProject.status)}</strong>
-                <span className="text-sm text-slate-500">Current status</span>
-              </div>
-              <div className="rounded-lg border p-5">
-                <strong className="block text-zai-ink">{credits.length}</strong>
-                <span className="text-sm text-slate-500">Issued credit batches</span>
+              <div className="rounded-md bg-slate-950 p-4 text-white">
+                <span className="text-xs uppercase tracking-wider text-slate-300">Recorded controls</span>
+                <strong className="mt-1 block text-3xl">{activeDomainOperations.length}</strong>
               </div>
             </div>
-          ) : (
-            <Alert className="mt-6" severity="info">No selected project yet.</Alert>
-          )}
-        </Paper>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {(activeEnterpriseDomain?.primary_roles ?? []).map((role) => (
+                <div key={role} className="rounded-md border bg-slate-50 p-4">
+                  <strong className="block text-sm text-zai-ink">{role}</strong>
+                  <span className="text-xs text-slate-500">Primary operating role</span>
+                </div>
+              ))}
+            </div>
+          </Paper>
+          <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+            <Paper elevation={0} className="border p-6">
+              <Typography variant="h6" fontWeight={900}>Operational Controls</Typography>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {(activeEnterpriseDomain?.required_controls ?? []).slice(0, 12).map((control) => {
+                  const normalized = control.toLowerCase().replaceAll(" ", "_").replaceAll("/", "_");
+                  const isDone = activeDomainOperations.some((record) => record.metadata?.control === normalized);
+                  return (
+                    <Button
+                      key={control}
+                      variant={isDone ? "outlined" : "contained"}
+                      disabled={isDone || nationalActionKey === `${activeTab}:${normalized}`}
+                      onClick={() =>
+                        runEnterpriseControl(
+                          activeTab,
+                          normalized,
+                          `${activeEnterpriseDomain?.name ?? "Enterprise"}: ${control}`,
+                          activeEnterpriseDomain?.primary_roles[0] ?? "Registry Manager"
+                        )
+                      }
+                      startIcon={isDone ? <LockIcon /> : <FactCheckIcon />}
+                      className="!justify-start !py-3"
+                    >
+                      {isDone ? `${control} complete` : control}
+                    </Button>
+                  );
+                })}
+              </div>
+            </Paper>
+            <Paper elevation={0} className="border p-6">
+              <Typography variant="h6" fontWeight={900}>Permissions and Audit</Typography>
+              <Stack spacing={1.2} className="mt-3">
+                {(enterpriseArchitecture?.roles ?? [])
+                  .filter((role) => activeEnterpriseDomain?.primary_roles.includes(role.name))
+                  .flatMap((role) => role.permissions.map((permission) => `${role.name}: ${permission}`))
+                  .slice(0, 10)
+                  .map((permission) => (
+                    <div key={permission} className="rounded-md border p-3 text-sm text-slate-700">{permission}</div>
+                  ))}
+              </Stack>
+            </Paper>
+          </div>
+          <Paper elevation={0} className="border p-6">
+            <Typography variant="h6" fontWeight={900}>Domain Audit Timeline</Typography>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {activeDomainOperations.slice(0, 8).map((record) => (
+                <div key={record.id} className="rounded-md border bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex items-center justify-between gap-3">
+                    <strong className="text-sm text-zai-ink">{record.title}</strong>
+                    <Chip size="small" label={formatStatus(record.status)} />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">{record.owner} - {new Date(record.created_at).toLocaleString()}</p>
+                </div>
+              ))}
+              {activeDomainOperations.length === 0 ? <Alert severity="info">No controls recorded for this domain yet.</Alert> : null}
+            </div>
+          </Paper>
+        </div>
       )}
         </main>
       </div>
