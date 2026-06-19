@@ -16,6 +16,15 @@ Open the portal:
 http://127.0.0.1:3000
 ```
 
+The portal opens on the IAM screen. Use the seeded first administrator to enter the system:
+
+```text
+Email: admin@zai-cts.gov.zw
+Password: Admin@12345
+```
+
+After login, register additional users from the `Register` screen or approve registered accounts in `Identity & Users`.
+
 Core services:
 
 - Web portal: `http://127.0.0.1:3000`
@@ -27,7 +36,7 @@ Core services:
 
 Open `Identity & Users`.
 
-Run the available IAM controls for:
+Use the real IAM screens and module for:
 
 - User registration
 - Login/session management
@@ -38,6 +47,8 @@ Run the available IAM controls for:
 - Profile and digital signatures
 - API keys
 - Configurable RBAC permissions
+
+Newly registered users are created as `pending_approval`. They cannot log in until an administrator approves them in `Identity & Users`.
 
 Open `Organizations`.
 

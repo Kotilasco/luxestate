@@ -5,7 +5,7 @@ import { config } from "../config.js";
 
 function forwardHeaders(incomingHeaders: Record<string, string | string[] | undefined>) {
   const headers: Record<string, string> = {};
-  for (const name of ["x-correlation-id", "x-actor-id", "x-actor-role"]) {
+  for (const name of ["x-correlation-id", "x-actor-id", "x-actor-role", "authorization"]) {
     const value = incomingHeaders[name];
     const normalized = Array.isArray(value) ? value[0] : value;
     if (normalized && normalized.trim().length > 0) {
@@ -38,6 +38,21 @@ function upstreamBody(method: string, contentType: string | undefined, body: unk
 }
 
 export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> {
+  app.all("/api/v1/auth/*", async (incoming, reply) => {
+    const params = incoming.params as { "*": string };
+    const url = new URL(`/api/v1/auth/${params["*"]}`, config.CARBON_REGISTRY_URL);
+
+    const upstream = await request(url, {
+      method: incoming.method,
+      headers: upstreamHeaders(incoming.headers),
+      body: upstreamBody(incoming.method, firstHeader(incoming.headers["content-type"]), incoming.body)
+    });
+
+    reply.statusCode = upstream.statusCode;
+    reply.headers(upstream.headers);
+    return upstream.body.json();
+  });
+
   app.all("/api/v1/national-readiness", async (incoming, reply) => {
     const url = new URL("/api/v1/national-readiness", config.CARBON_REGISTRY_URL);
 

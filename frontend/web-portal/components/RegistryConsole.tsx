@@ -44,10 +44,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   advanceProjectWorkflow,
   AiReview,
+  approveUser,
   adoptRegistryRule,
   allocateBufferPool,
   approveNationalMethodology,
   AuditEvent,
+  AuthSession,
+  AuthUser,
   authorizeArticle6Transfer,
   CarbonProject,
   createAccountingSnapshot,
@@ -58,6 +61,7 @@ import {
   EnterpriseArchitecture,
   fetchGatewayHealth,
   getEnterpriseArchitecture,
+  getCurrentUser,
   getNationalOperations,
   getNationalReadiness,
   getVerificationCase,
@@ -71,6 +75,8 @@ import {
   listCarbonProjects,
   listCreditBatches,
   listEvidence,
+  listUsers,
+  loginUser,
   NationalOperations,
   openAppealCase,
   openComplianceCase,
@@ -81,6 +87,8 @@ import {
   recordMarketSettlement,
   recordEnterpriseDomainControl,
   registerCarbonProject,
+  registerUser,
+  requestPasswordReset,
   recordStageDecision,
   recordVerificationCaseAction,
   retireLedgerCredits,
@@ -88,12 +96,14 @@ import {
   runAutomaticVerification,
   runGisAssessment,
   runVerificationAiAssessment,
+  setClientAuthSession,
   startVerificationCase,
   submitGisEvidence,
   transferLedgerCredits,
   uploadVerificationEvidenceFiles,
   validateAiReview,
   validateGisEvidence,
+  logoutUser,
   NationalReadiness,
   VerificationAssessment,
   VerificationCase,
@@ -310,6 +320,19 @@ function availableActions(project: CarbonProject | null): Array<[WorkflowAction,
 export default function RegistryConsole() {
   const [health, setHealth] = useState<string>("checking");
   const [projects, setProjects] = useState<CarbonProject[]>([]);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
+  const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
+  const [authForm, setAuthForm] = useState({
+    full_name: "",
+    email: "admin@zai-cts.gov.zw",
+    password: "Admin@12345",
+    role: "Project Developer",
+    organization_name: "",
+    organization_type: "Carbon Developer",
+    registration_number: "",
+    mfa_code: ""
+  });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [credits, setCredits] = useState<CreditBatch[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -431,6 +454,95 @@ export default function RegistryConsole() {
     setAiReview((current) => (current?.project_id === projectId ? current : null));
   }
 
+  async function loadIamUsers() {
+    setAuthUsers(await listUsers());
+  }
+
+  async function submitLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const session = await loginUser({
+        email: authForm.email,
+        password: authForm.password,
+        mfa_code: authForm.mfa_code || undefined
+      });
+      setAuthSession(session);
+      localStorage.setItem("zai-cts-session", JSON.stringify(session));
+      await Promise.all([loadProjects(), loadIamUsers()]);
+      setMessage({ type: "success", text: `Logged in as ${session.user.full_name}.` });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Login failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function submitRegistration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const user = await registerUser({
+        full_name: authForm.full_name,
+        email: authForm.email,
+        password: authForm.password,
+        role: authForm.role,
+        organization: authForm.organization_name
+          ? {
+              name: authForm.organization_name,
+              organization_type: authForm.organization_type,
+              country: "Zimbabwe",
+              registration_number: authForm.registration_number || `ORG-${Date.now()}`
+            }
+          : undefined
+      });
+      setAuthMode("login");
+      setMessage({
+        type: "success",
+        text: `${user.full_name} registered. A registry administrator must approve the account before login.`
+      });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Registration failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function approveIamUser(user: AuthUser, nextStatus: "approved" | "suspended" | "rejected") {
+    setNationalActionKey(`iam-${user.id}-${nextStatus}`);
+    try {
+      await approveUser(user.id, nextStatus, `Account ${nextStatus} by ${authSession?.user.full_name ?? "administrator"}.`);
+      await loadIamUsers();
+      setMessage({ type: "success", text: `${user.full_name} is now ${nextStatus}.` });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "User update failed." });
+    } finally {
+      setNationalActionKey(null);
+    }
+  }
+
+  async function signOut() {
+    await logoutUser();
+    setClientAuthSession(null);
+    setAuthSession(null);
+    localStorage.removeItem("zai-cts-session");
+    setMessage({ type: "info", text: "Logged out." });
+  }
+
+  async function submitForgotPassword() {
+    setIsLoading(true);
+    try {
+      const result = await requestPasswordReset(authForm.email);
+      setMessage({ type: "info", text: result.message });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Password reset request failed." });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function runNationalOperation(key: string, action: () => Promise<{ message: string }>) {
     setNationalActionKey(key);
     setMessage(null);
@@ -482,6 +594,27 @@ export default function RegistryConsole() {
   }
 
   useEffect(() => {
+    const storedSession = localStorage.getItem("zai-cts-session");
+    if (storedSession) {
+      try {
+        const session = JSON.parse(storedSession) as AuthSession;
+        setClientAuthSession(session);
+        getCurrentUser(session)
+          .then((user) => {
+            const refreshed = { ...session, user };
+            setAuthSession(refreshed);
+            setClientAuthSession(refreshed);
+            localStorage.setItem("zai-cts-session", JSON.stringify(refreshed));
+            loadIamUsers().catch(() => undefined);
+          })
+          .catch(() => {
+            setClientAuthSession(null);
+            localStorage.removeItem("zai-cts-session");
+          });
+      } catch {
+        localStorage.removeItem("zai-cts-session");
+      }
+    }
     loadProjects().catch((error: unknown) => {
       setHealth("unavailable");
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Unable to load registry data." });
@@ -790,6 +923,115 @@ export default function RegistryConsole() {
     }
   }
 
+  if (!authSession) {
+    return (
+      <section className="min-h-screen bg-slate-950 px-4 py-8 text-white">
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1fr_440px]">
+          <div className="flex min-h-[720px] flex-col justify-between rounded-lg border border-white/10 bg-white/5 p-8">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-300">Zimbabwe National Carbon Registry</p>
+              <Typography variant="h3" fontWeight={900} className="!mt-4">
+                ZAI-CTS Secure Access
+              </Typography>
+              <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
+                Register an organization, create a user account, sign in with an approved role, and operate the national carbon registry under auditable identity controls.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {[
+                ["IAM", "Registration, login, MFA, approval, suspension and sessions"],
+                ["RBAC", "Configurable role permissions for government, developers, verifiers and market users"],
+                ["Audit", "Every authenticated registry action carries actor, role and correlation identity"]
+              ].map(([title, text]) => (
+                <div key={title} className="rounded-md border border-white/10 bg-white/5 p-4">
+                  <strong>{title}</strong>
+                  <p className="mt-2 text-sm text-slate-300">{text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <Paper elevation={0} className="border !bg-white p-6 text-slate-900">
+            <div className="mb-5 flex rounded-md bg-slate-100 p-1">
+              {[
+                ["login", "Login"],
+                ["register", "Register"],
+                ["forgot", "Forgot"]
+              ].map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setAuthMode(mode as "login" | "register" | "forgot")}
+                  className={`flex-1 rounded px-3 py-2 text-sm font-bold transition ${
+                    authMode === mode ? "bg-white text-zai-blue shadow-sm" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {message ? <Alert className="!mb-4" severity={message.type}>{message.text}</Alert> : null}
+            {authMode === "login" ? (
+              <Box component="form" onSubmit={submitLogin}>
+                <Stack spacing={2}>
+                  <Typography variant="h5" fontWeight={900}>Sign in</Typography>
+                  <TextField label="Email" value={authForm.email} onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))} required />
+                  <TextField label="Password" type="password" value={authForm.password} onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))} required />
+                  <TextField label="MFA code, if enabled" value={authForm.mfa_code} onChange={(event) => setAuthForm((current) => ({ ...current, mfa_code: event.target.value }))} />
+                  <Button type="submit" variant="contained" disabled={isLoading} startIcon={isLoading ? <CircularProgress size={16} /> : <LockIcon />}>
+                    Login
+                  </Button>
+                  <Alert severity="info">
+                    Seed administrator: `admin@zai-cts.gov.zw` / `Admin@12345`
+                  </Alert>
+                </Stack>
+              </Box>
+            ) : authMode === "register" ? (
+              <Box component="form" onSubmit={submitRegistration}>
+                <Stack spacing={2}>
+                  <Typography variant="h5" fontWeight={900}>Register account</Typography>
+                  <TextField label="Full name" value={authForm.full_name} onChange={(event) => setAuthForm((current) => ({ ...current, full_name: event.target.value }))} required />
+                  <TextField label="Email" value={authForm.email} onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))} required />
+                  <TextField label="Password" type="password" value={authForm.password} onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))} required />
+                  <TextField select label="Role" value={authForm.role} onChange={(event) => setAuthForm((current) => ({ ...current, role: event.target.value }))}>
+                    {[
+                      "Project Developer",
+                      "Accredited Validator",
+                      "Accredited Verifier",
+                      "Government Officer",
+                      "Administrator",
+                      "ZiCMA Administrator",
+                      "GIS Analyst",
+                      "MRV Officer",
+                      "Buyer",
+                      "Seller",
+                      "Community Officer"
+                    ].map((role) => <MenuItem key={role} value={role}>{role}</MenuItem>)}
+                  </TextField>
+                  <TextField label="Organization name" value={authForm.organization_name} onChange={(event) => setAuthForm((current) => ({ ...current, organization_name: event.target.value }))} />
+                  <TextField label="Organization type" value={authForm.organization_type} onChange={(event) => setAuthForm((current) => ({ ...current, organization_type: event.target.value }))} />
+                  <TextField label="Registration number" value={authForm.registration_number} onChange={(event) => setAuthForm((current) => ({ ...current, registration_number: event.target.value }))} />
+                  <Button type="submit" variant="contained" disabled={isLoading} startIcon={<AddCircleIcon />}>Create account</Button>
+                </Stack>
+              </Box>
+            ) : (
+              <Stack spacing={2}>
+                <Typography variant="h5" fontWeight={900}>Forgot password</Typography>
+                <TextField label="Email" value={authForm.email} onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))} />
+                <Button
+                  variant="contained"
+                  disabled={isLoading}
+                  onClick={submitForgotPassword}
+                >
+                  Request reset
+                </Button>
+              </Stack>
+            )}
+          </Paper>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section id="registry" className="enterprise-shell w-full px-4 py-6 lg:px-6 2xl:px-8">
       <div className="hero-band mb-6 flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
@@ -800,10 +1042,14 @@ export default function RegistryConsole() {
             Register a project, review it, approve it, issue serialized credits, and inspect the audit trail from one working screen.
           </p>
         </div>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+          <Chip color="primary" label={`${authSession.user.full_name} - ${authSession.user.role}`} />
           <Chip color={health.startsWith("healthy") ? "success" : "warning"} label={`Gateway: ${health}`} />
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadProjects()} disabled={isLoading}>
             Refresh
+          </Button>
+          <Button variant="outlined" color="error" onClick={signOut}>
+            Logout
           </Button>
         </Stack>
       </div>
@@ -813,7 +1059,8 @@ export default function RegistryConsole() {
           <div className="mb-4 rounded-md bg-slate-900 p-4 text-white">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-200">National Platform</p>
             <strong className="mt-2 block text-xl">ZAI-CTS</strong>
-            <span className="text-sm text-slate-300">Verification command centre</span>
+            <span className="text-sm text-slate-300">{authSession.user.role}</span>
+            <p className="mt-2 break-all text-xs text-slate-400">{authSession.user.email}</p>
           </div>
           <Stack spacing={1}>
             {workspaceLinks.map(([value, label, icon]) => (
@@ -2045,6 +2292,79 @@ export default function RegistryConsole() {
             <Alert className="mt-6" severity="info">Select or register a project before running AI review.</Alert>
           )}
         </Paper>
+      ) : activeTab === "identity" ? (
+        <div className="grid gap-5">
+          <Paper elevation={0} className="border p-6">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+              <div>
+                <Typography variant="h5" fontWeight={900}>Identity & User Management</Typography>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                  Real IAM workspace for registration, login, approval, suspension, sessions, digital signatures, API keys and configurable RBAC permissions.
+                </p>
+              </div>
+              <Button variant="contained" onClick={loadIamUsers} startIcon={<RefreshIcon />}>Refresh users</Button>
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-4">
+              {[
+                ["Users", authUsers.length],
+                ["Pending", authUsers.filter((user) => user.status === "pending_approval").length],
+                ["Approved", authUsers.filter((user) => user.status === "approved").length],
+                ["Suspended", authUsers.filter((user) => user.status === "suspended").length]
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border bg-slate-50 p-4">
+                  <strong className="block text-2xl text-zai-ink">{value}</strong>
+                  <span className="text-sm text-slate-500">{label}</span>
+                </div>
+              ))}
+            </div>
+          </Paper>
+          <div className="grid gap-4">
+            {authUsers.map((user) => (
+              <Paper key={user.id} elevation={0} className="border p-5 transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Typography variant="h6" fontWeight={900}>{user.full_name}</Typography>
+                      <Chip size="small" label={formatStatus(user.status)} color={user.status === "approved" ? "success" : user.status === "suspended" ? "error" : "warning"} />
+                      <Chip size="small" label={user.role} />
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{user.email}</p>
+                    <p className="mt-2 text-xs text-slate-500">Signature: {user.digital_signature}</p>
+                    {user.organization ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Organization: {user.organization.name} - KYB {formatStatus(user.organization.kyb_status)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    <Button
+                      size="small"
+                      variant="contained"
+                      disabled={user.status === "approved" || nationalActionKey === `iam-${user.id}-approved`}
+                      onClick={() => approveIamUser(user, "approved")}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="small"
+                      color="warning"
+                      variant="outlined"
+                      disabled={user.status === "suspended" || nationalActionKey === `iam-${user.id}-suspended`}
+                      onClick={() => approveIamUser(user, "suspended")}
+                    >
+                      Suspend
+                    </Button>
+                  </Stack>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {user.permissions.slice(0, 8).map((permission) => (
+                    <Chip key={permission} size="small" label={permission} />
+                  ))}
+                </div>
+              </Paper>
+            ))}
+          </div>
+        </div>
       ) : activeTab === "national" ? (
         <div className="grid gap-5">
           <Paper elevation={0} className="border border-slate-200 bg-white p-6 shadow-sm">

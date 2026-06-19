@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api.error_handlers import register_error_handlers
+from app.api.v1.auth import router as auth_router
 from app.api.v1.health import router as health_router
 from app.api.v1.national import operations_router, router as national_router
 from app.api.v1.projects import router as projects_router
@@ -18,12 +19,14 @@ def create_app() -> FastAPI:
         contact={"name": "ZAI-CTS Platform Team"},
         openapi_tags=[
             {"name": "Operations", "description": "Health and metrics endpoints"},
+            {"name": "Identity and Access Management", "description": "User registration, login, sessions, approvals and API keys"},
             {"name": "Carbon Projects", "description": "Carbon project registration and query APIs"},
             {"name": "National Registry Readiness", "description": "National deployment stage controls and readiness gaps"},
             {"name": "National Registry Operations", "description": "Auditable national registry operating workflows"},
         ],
     )
     register_error_handlers(app)
+    app.include_router(auth_router)
     app.include_router(health_router)
     app.include_router(national_router)
     app.include_router(operations_router)

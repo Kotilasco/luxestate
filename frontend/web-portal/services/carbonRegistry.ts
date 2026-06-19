@@ -272,6 +272,42 @@ export type NationalActionResult = {
   generated_at: string;
 };
 
+export type AuthOrganization = {
+  id: string;
+  name: string;
+  organization_type: string;
+  country: string;
+  registration_number: string;
+  kyb_status: string;
+  approval_status: string;
+};
+
+export type AuthUser = {
+  id: string;
+  full_name: string;
+  email: string;
+  role: string;
+  status: string;
+  email_verified: boolean;
+  mfa_enabled: boolean;
+  organization: AuthOrganization | null;
+  permissions: string[];
+  digital_signature: string;
+};
+
+export type AuthSession = {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+  user: AuthUser;
+};
+
+let clientAuthSession: AuthSession | null = null;
+
+export function setClientAuthSession(session: AuthSession | null) {
+  clientAuthSession = session;
+}
+
 export type RetirementCertificate = {
   certificate_id: string;
   status: string;
@@ -312,6 +348,99 @@ export async function fetchGatewayHealth(): Promise<{ status: string; service: s
   const response = await fetch(`${apiBaseUrl}/health`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Gateway health check failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function registerUser(payload: {
+  full_name: string;
+  email: string;
+  password: string;
+  role: string;
+  organization?: {
+    name: string;
+    organization_type: string;
+    country: string;
+    registration_number: string;
+  };
+}): Promise<AuthUser> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Registration failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function loginUser(payload: { email: string; password: string; mfa_code?: string }): Promise<AuthSession> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Login failed with ${response.status}`);
+  }
+  const session = (await response.json()) as AuthSession;
+  setClientAuthSession(session);
+  return session;
+}
+
+export async function logoutUser(): Promise<void> {
+  if (!clientAuthSession) return;
+  await fetch(`${apiBaseUrl}/api/v1/auth/logout`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${clientAuthSession.access_token}` }
+  });
+  setClientAuthSession(null);
+}
+
+export async function requestPasswordReset(email: string): Promise<{ message: string }> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/forgot-password`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email })
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Password reset request failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getCurrentUser(session: AuthSession): Promise<AuthUser> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/me`, {
+    cache: "no-store",
+    headers: { authorization: `Bearer ${session.access_token}` }
+  });
+  if (!response.ok) {
+    throw new Error(`Session validation failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function listUsers(): Promise<AuthUser[]> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/users`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`User list failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function approveUser(userId: string, status: "approved" | "suspended" | "rejected", reason: string): Promise<AuthUser> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/users/${userId}/approval`, {
+    method: "POST",
+    headers: actorHeaders(),
+    body: JSON.stringify({ status, reason })
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `User approval failed with ${response.status}`);
   }
   return response.json();
 }
@@ -841,14 +970,22 @@ export async function recordVerificationCaseAction(projectId: string, action: Ve
   return response.json();
 }
 
-function actorHeaders() {
+function actorHeaders(): Record<string, string> {
   return {
     "content-type": "application/json",
     ...actorIdentityHeaders()
   };
 }
 
-function actorIdentityHeaders() {
+function actorIdentityHeaders(): Record<string, string> {
+  if (clientAuthSession) {
+    return {
+      "x-actor-id": clientAuthSession.user.id,
+      "x-actor-role": clientAuthSession.user.role,
+      "x-correlation-id": crypto.randomUUID(),
+      authorization: `Bearer ${clientAuthSession.access_token}`
+    };
+  }
   return {
     "x-actor-id": "11111111-1111-4111-8111-111111111111",
     "x-actor-role": "regulator.approver",
