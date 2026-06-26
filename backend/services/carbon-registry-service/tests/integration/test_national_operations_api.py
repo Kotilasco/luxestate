@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.dependencies import get_audit_reader, get_audit_writer
 from app.application.ports import AuditReader, AuditWriter
 from app.main import create_app
+from app.infrastructure.security.current_user import SESSIONS
 
 
 class CapturingAuditWriter(AuditWriter, AuditReader):
@@ -53,7 +54,33 @@ async def test_national_operations_record_auditable_controls() -> None:
     app.dependency_overrides[get_audit_writer] = audit_writer_override
     app.dependency_overrides[get_audit_reader] = audit_reader_override
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    from app.api.v1.auth import USERS
+    admin_token = "national_operations_admin_token"
+    USERS["national-admin@test.com"] = {
+        "id": uuid4(),
+        "full_name": "National Operations Administrator",
+        "email": "national-admin@test.com",
+        "role": "Super Administrator",
+        "status": "approved",
+        "salt": "test_salt",
+        "password_hash": "test_hash",
+        "email_verified": True,
+        "mfa_enabled": False,
+        "organization": None,
+        "digital_signature": "SIG-NATIONAL-ADMIN",
+        "created_at": datetime.now(tz=UTC),
+    }
+    SESSIONS[admin_token] = {
+        "user_email": "national-admin@test.com",
+        "expires_at": datetime.now(tz=UTC) + timedelta(hours=1),
+        "created_at": datetime.now(tz=UTC),
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ) as client:
         readiness_response = await client.get("/api/v1/national-readiness")
         assert readiness_response.status_code == 200
         assert len(readiness_response.json()["stages"]) == 8

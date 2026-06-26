@@ -1,6 +1,14 @@
 /.env
 /vendor
 /node_modules
+**/node_modules/
+**/.next/
+**/.vscode/
+**/.env.local
+**/storage/evidence/
+**/storage/tmp/
+**/coverage/
+**/.pytest_cache/
 **/.venv
 **/__pycache__
 **/*.pyc
@@ -18,3 +26,7 @@
 /.edge-capture-*
 LuxEstate.zip
 docx_extracted.txt
+blockchain/.fabric/fabric-samples/
+blockchain/.fabric/
+frontend/web-portal/nul
+nul

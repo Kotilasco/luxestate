@@ -2,17 +2,44 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import get_audit_reader, get_audit_writer
 from app.application.ports import AuditReader, AuditWriter
 from app.infrastructure.security.current_user import CurrentUser, get_current_user
+from app.infrastructure.security.rbac import (
+    AuthenticatedUser,
+    Permission,
+    check_permission,
+    get_authenticated_user,
+)
 
 
 router = APIRouter(prefix="/api/v1/national-readiness", tags=["National Registry Readiness"])
 operations_router = APIRouter(prefix="/api/v1/national-operations", tags=["National Registry Operations"])
 NATIONAL_OPERATIONS_RESOURCE_ID = UUID("99999999-9999-4999-8999-999999999999")
+
+OPERATION_PERMISSIONS: dict[str, Permission] = {
+    "registry_rule": Permission.RULES_ADOPT,
+    "public_disclosure": Permission.REGISTRY_MANAGE,
+    "registry_account": Permission.ORGANIZATIONS_MANAGE,
+    "methodology": Permission.REGISTRY_MANAGE,
+    "verifier_accreditation": Permission.ORGANIZATIONS_APPROVE,
+    "gis_processing_job": Permission.GIS_LINEAGE_RECORD,
+    "non_conformance": Permission.VERIFICATION_DECIDE,
+    "buffer_allocation": Permission.CREDITS_ISSUE,
+    "ledger_transfer": Permission.CREDITS_TRANSFER,
+    "ledger_retirement": Permission.CREDITS_RETIRE,
+    "ledger_freeze": Permission.CREDITS_FREEZE,
+    "article6_authorization": Permission.ARTICLE6_AUTHORIZE,
+    "market_settlement": Permission.SETTLEMENT_RECORD,
+    "marketplace_listing": Permission.MARKETPLACE_LIST,
+    "compliance_case": Permission.COMPLIANCE_CASE_OPEN,
+    "accounting_snapshot": Permission.REPORTS_APPROVE,
+    "stage_decision": Permission.STAGE_DECISION,
+    "domain_control": Permission.REGISTRY_ADMIN,
+}
 
 
 class NationalStage(BaseModel):
@@ -632,6 +659,9 @@ async def _write_operation(
     current_user: CurrentUser,
     x_correlation_id: UUID | None,
 ) -> NationalActionResponse:
+    required_permission = OPERATION_PERMISSIONS.get(str(payload["operation_type"]))
+    if required_permission is not None:
+        check_permission(current_user, required_permission)
     operation_id = str(uuid4())
     now = datetime.now(tz=UTC)
     metadata = {
@@ -692,15 +722,22 @@ async def get_national_operations(
     )
 
 
-@operations_router.post("/domains/{domain}/controls/{control}", response_model=NationalActionResponse, status_code=status.HTTP_201_CREATED)
+@operations_router.post(
+    "/domains/{domain}/controls/{control}",
+    response_model=NationalActionResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={403: {"description": "Permission denied"}},
+)
 async def record_domain_control(
     domain: str,
     control: str,
     request: EnterpriseControlRequest,
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> NationalActionResponse:
+    # RBAC: Domain controls require REGISTRY_ADMIN or appropriate domain permission
+    check_permission(current_user, Permission.REGISTRY_ADMIN)
     if domain not in DOMAIN_STAGE_MAP:
         return NationalActionResponse(
             id=str(uuid4()),

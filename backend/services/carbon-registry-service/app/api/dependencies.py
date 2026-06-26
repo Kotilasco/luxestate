@@ -6,6 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.ports import AuditReader, AuditWriter, CarbonProjectRepository, CreditBatchRepository
 from app.infrastructure.database.session import get_session
 from app.infrastructure.repositories.sqlalchemy_audit_reader import SqlAlchemyAuditReader
+
+
+async def get_db_session(
+    session: AsyncSession = Depends(get_session),
+) -> AsyncGenerator[AsyncSession, None]:
+    yield session
 from app.infrastructure.repositories.sqlalchemy_audit_writer import SqlAlchemyAuditWriter
 from app.infrastructure.repositories.sqlalchemy_carbon_project_repository import (
     SqlAlchemyCarbonProjectRepository,

@@ -41,6 +41,17 @@ import {
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import AIReportsPanel from "./AIReportsPanel";
+import AIValidationPanel from "./AIValidationPanel";
+import CompliancePanel from "./CompliancePanel";
+import CorporateBuyerPortal from "./CorporateBuyerPortal";
+import ITMOIssuanceWorkflow from "./ITMOIssuanceWorkflow";
+import MarketplacePanel from "./MarketplacePanel";
+import ProjectDeveloperPortal from "./ProjectDeveloperPortal";
+import RDCInterface from "./RDCInterface";
+import ZiCMARegulatorDashboard from "./ZiCMARegulatorDashboard";
+import AnchorDashboard from "./AnchorDashboard";
+
 import {
   advanceProjectWorkflow,
   AiReview,
@@ -112,6 +123,8 @@ import {
   VerificationUploadFile,
   WorkflowAction
 } from "../services/carbonRegistry";
+
+import { hasPermission, Permission } from "../lib/rbac";
 
 const bootstrapOrganizationId = "11111111-1111-4111-8111-111111111111";
 
@@ -253,12 +266,15 @@ const workspaceLinks = [
   ["article6", "Article 6 Ops", <SummarizeIcon key="article6" />],
   ["gis", "GIS Intelligence", <MapIcon key="gis" />],
   ["ai", "AI Intelligence", <AnalyticsIcon key="ai" />],
+  ["ai-reports", "AI Reports", <SummarizeIcon key="ai-reports" />],
   ["mrv", "MRV", <UploadFileIcon key="mrv" />],
   ["compliance", "Compliance", <GavelIcon key="compliance" />],
   ["appeals", "Appeals", <PolicyIcon key="appeals" />],
   ["reporting", "Reporting", <SummarizeIcon key="reporting" />],
   ["administration", "Administration", <ShieldIcon key="administration" />],
-  ["national", "National Stages", <PolicyIcon key="national" />]
+  ["stakeholders", "Stakeholder Portal", <AccountTreeIcon key="stakeholders" />],
+  ["national", "National Stages", <PolicyIcon key="national" />],
+  ["anchoring", "Anchoring", <ShieldIcon key="anchoring" />]
 ];
 
 type FormState = {
@@ -317,7 +333,23 @@ function availableActions(project: CarbonProject | null): Array<[WorkflowAction,
   return [];
 }
 
-export default function RegistryConsole() {
+interface RegistryConsoleProps {
+  embedded?: boolean;
+  onLogin?: (email: string, password: string) => void | Promise<void>;
+  defaultEmail?: string;
+  defaultPassword?: string;
+  initialTab?: string;
+  authSession?: AuthSession | null;
+}
+
+export default function RegistryConsole({
+  embedded = false,
+  onLogin,
+  defaultEmail,
+  defaultPassword,
+  initialTab = "dashboard",
+  authSession: externalAuthSession,
+}: RegistryConsoleProps) {
   const [health, setHealth] = useState<string>("checking");
   const [projects, setProjects] = useState<CarbonProject[]>([]);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
@@ -325,8 +357,8 @@ export default function RegistryConsole() {
   const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
   const [authForm, setAuthForm] = useState({
     full_name: "",
-    email: "admin@zai-cts.gov.zw",
-    password: "Admin@12345",
+    email: defaultEmail ?? "admin@zai-cts.gov.zw",
+    password: defaultPassword ?? "ZAI-CTS-Admin-2026!",
     role: "Project Developer",
     organization_name: "",
     organization_type: "Carbon Developer",
@@ -358,7 +390,7 @@ export default function RegistryConsole() {
     verifier_notes: "Boundary, satellite and field MRV pack uploaded by accredited verifier for regulator review."
   });
   const [form, setForm] = useState<FormState>(() => createInitialForm());
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
 
@@ -463,6 +495,12 @@ export default function RegistryConsole() {
     setIsLoading(true);
     setMessage(null);
     try {
+      // If external onLogin handler is provided (embedded mode), use it
+      if (onLogin) {
+        await onLogin(authForm.email, authForm.password);
+        return;
+      }
+      
       const session = await loginUser({
         email: authForm.email,
         password: authForm.password,
@@ -620,6 +658,24 @@ export default function RegistryConsole() {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Unable to load registry data." });
     });
   }, []);
+
+  // Sync external authSession prop changes (embedded mode)
+  useEffect(() => {
+    if (externalAuthSession !== undefined) {
+      setAuthSession(externalAuthSession);
+    }
+  }, [externalAuthSession]);
+
+  // Auto-load IAM users when identity tab is shown
+  useEffect(() => {
+    if (activeTab === "identity" && authUsers.length === 0) {
+      // Ensure clientAuthSession is synced for API calls
+      if (authSession) {
+        setClientAuthSession(authSession);
+      }
+      loadIamUsers();
+    }
+  }, [activeTab, authSession]);
 
   function updateField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -925,12 +981,12 @@ export default function RegistryConsole() {
 
   if (!authSession) {
     return (
-      <section className="min-h-screen bg-slate-950 px-4 py-8 text-white">
+      <section className="min-h-screen bg-gradient-to-br from-emerald-950 via-slate-900 to-teal-950 px-4 py-8 text-white">
         <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1fr_440px]">
-          <div className="flex min-h-[720px] flex-col justify-between rounded-lg border border-white/10 bg-white/5 p-8">
+          <div className="flex min-h-[720px] flex-col justify-between rounded-2xl border border-emerald-500/20 bg-white/5 p-8 backdrop-blur-sm">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-300">Zimbabwe National Carbon Registry</p>
-              <Typography variant="h3" fontWeight={900} className="!mt-4">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">Zimbabwe National Carbon Registry</p>
+              <Typography variant="h3" fontWeight={900} className="!mt-4 !text-white">
                 ZAI-CTS Secure Access
               </Typography>
               <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
@@ -943,15 +999,15 @@ export default function RegistryConsole() {
                 ["RBAC", "Configurable role permissions for government, developers, verifiers and market users"],
                 ["Audit", "Every authenticated registry action carries actor, role and correlation identity"]
               ].map(([title, text]) => (
-                <div key={title} className="rounded-md border border-white/10 bg-white/5 p-4">
-                  <strong>{title}</strong>
+                <div key={title} className="rounded-xl border border-emerald-500/15 bg-emerald-500/5 p-4 transition hover:bg-emerald-500/10 hover:border-emerald-500/25">
+                  <strong className="text-emerald-200">{title}</strong>
                   <p className="mt-2 text-sm text-slate-300">{text}</p>
                 </div>
               ))}
             </div>
           </div>
-          <Paper elevation={0} className="border !bg-white p-6 text-slate-900">
-            <div className="mb-5 flex rounded-md bg-slate-100 p-1">
+          <Paper elevation={0} className="rounded-2xl border border-slate-200 shadow-xl !bg-white p-6 text-slate-900">
+            <div className="mb-5 flex rounded-lg bg-slate-100 p-1">
               {[
                 ["login", "Login"],
                 ["register", "Register"],
@@ -961,8 +1017,8 @@ export default function RegistryConsole() {
                   key={mode}
                   type="button"
                   onClick={() => setAuthMode(mode as "login" | "register" | "forgot")}
-                  className={`flex-1 rounded px-3 py-2 text-sm font-bold transition ${
-                    authMode === mode ? "bg-white text-zai-blue shadow-sm" : "text-slate-500 hover:text-slate-900"
+                  className={`flex-1 rounded-md px-3 py-2 text-sm font-bold transition ${
+                    authMode === mode ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
                   {label}
@@ -981,7 +1037,7 @@ export default function RegistryConsole() {
                     Login
                   </Button>
                   <Alert severity="info">
-                    Seed administrator: `admin@zai-cts.gov.zw` / `Admin@12345`
+                    Seed administrator: `admin@zai-cts.gov.zw` / `ZAI-CTS-Admin-2026!`
                   </Alert>
                 </Stack>
               </Box>
@@ -1032,20 +1088,175 @@ export default function RegistryConsole() {
     );
   }
 
+  // Embedded mode inside AppShell: render content without sidebar/header
+  if (embedded) {
+    return (
+      <section id="registry" className="w-full">
+        {message && (
+          <Alert className="mb-6" severity={message.type}>
+            {message.text}
+          </Alert>
+        )}
+        {activeTab === "dashboard" ? (
+          <div className="grid gap-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              {[
+                ["Projects", projects.length],
+                ["Credits", credits.length],
+                ["Evidence", evidenceRecords.length],
+                ["Open Actions", verificationCase?.outstanding_actions.length ?? 0]
+              ].map(([label, value]) => (
+                <Paper key={label.toString()} elevation={0} className="workspace-panel border p-5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
+                  <strong className="mt-2 block text-3xl text-zai-blue">{value}</strong>
+                </Paper>
+              ))}
+            </div>
+            <Paper elevation={0} className="workspace-panel border p-6">
+              <Typography variant="h5" fontWeight={900}>
+                Verification operations overview
+              </Typography>
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                <div>
+                  <Typography variant="h6" fontWeight={800}>Outstanding actions</Typography>
+                  <Stack spacing={1.5} className="mt-3">
+                    {(verificationCase?.outstanding_actions.length ? verificationCase.outstanding_actions : ["Select a project and start verification."]).map((action) => (
+                      <div key={action} className="rounded-lg border p-4 text-sm text-slate-700">{action}</div>
+                    ))}
+                  </Stack>
+                </div>
+                <div>
+                  <Typography variant="h6" fontWeight={800}>Latest audit</Typography>
+                  <Stack spacing={1.5} className="mt-3">
+                    {auditEvents.slice(0, 5).map((event) => (
+                      <div key={event.id} className="rounded-lg border p-4">
+                        <strong className="block text-zai-ink">{event.event_type}</strong>
+                        <span className="text-sm text-slate-600">{event.action} - {event.outcome}</span>
+                      </div>
+                    ))}
+                  </Stack>
+                </div>
+              </div>
+            </Paper>
+          </div>
+        ) : activeTab === "identity" ? (
+          <div className="grid gap-5">
+            <Paper elevation={0} className="border p-6">
+              <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+                <div>
+                  <Typography variant="h5" fontWeight={900}>Identity & User Management</Typography>
+                  <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                    Real IAM workspace for registration, login, approval, suspension, sessions, digital signatures, API keys and configurable RBAC permissions.
+                  </p>
+                </div>
+                <Button variant="contained" onClick={loadIamUsers} startIcon={<RefreshIcon />}>Refresh users</Button>
+              </div>
+              <div className="mt-5 grid gap-3 md:grid-cols-4">
+                {[
+                  ["Users", authUsers.length],
+                  ["Pending", authUsers.filter((user) => user.status === "pending_approval").length],
+                  ["Approved", authUsers.filter((user) => user.status === "approved").length],
+                  ["Suspended", authUsers.filter((user) => user.status === "suspended").length]
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-md border bg-slate-50 p-4">
+                    <strong className="block text-2xl text-zai-ink">{value}</strong>
+                    <span className="text-sm text-slate-500">{label}</span>
+                  </div>
+                ))}
+              </div>
+            </Paper>
+            <div className="grid gap-4">
+              {authUsers.map((user) => (
+                <Paper key={user.id} elevation={0} className="border p-5 transition hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Typography variant="h6" fontWeight={900}>{user.full_name}</Typography>
+                        <Chip size="small" label={formatStatus(user.status)} color={user.status === "approved" ? "success" : user.status === "suspended" ? "error" : "warning"} />
+                        <Chip size="small" label={user.role} />
+                      </div>
+                      <p className="mt-1 text-sm text-slate-600">{user.email}</p>
+                      <p className="mt-2 text-xs text-slate-500">Signature: {user.digital_signature}</p>
+                      {user.organization ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Organization: {user.organization.name} - KYB {formatStatus(user.organization.kyb_status)}
+                        </p>
+                      ) : null}
+                    </div>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      {hasPermission(authSession?.user?.role, Permission.USERS_APPROVE) && (
+                        <>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disabled={user.status === "approved" || nationalActionKey === `iam-${user.id}-approved`}
+                            onClick={() => approveIamUser(user, "approved")}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            disabled={user.status === "suspended" || nationalActionKey === `iam-${user.id}-suspended`}
+                            onClick={() => approveIamUser(user, "suspended")}
+                          >
+                            Suspend
+                          </Button>
+                        </>
+                      )}
+                      {!hasPermission(authSession?.user?.role, Permission.USERS_APPROVE) && (
+                        <Chip size="small" label="View Only" color="default" />
+                      )}
+                    </Stack>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {user.permissions.slice(0, 8).map((permission) => (
+                      <Chip key={permission} size="small" label={permission} />
+                    ))}
+                  </div>
+                </Paper>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-5">
+            <Paper elevation={0} className="border p-6">
+              <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+                <div>
+                  <Typography variant="h5" fontWeight={900}>
+                    {activeEnterpriseDomain?.name ?? workspaceLinks.find(([value]) => value === activeTab)?.[1]}
+                  </Typography>
+                  <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                    {activeEnterpriseDomain?.objective ?? "Enterprise workspace for the selected operational domain."}
+                  </p>
+                </div>
+                <div className="rounded-md bg-slate-950 p-4 text-white">
+                  <span className="text-xs uppercase tracking-wider text-slate-300">Recorded controls</span>
+                  <strong className="mt-1 block text-3xl">{activeDomainOperations.length}</strong>
+                </div>
+              </div>
+            </Paper>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section id="registry" className="enterprise-shell w-full px-4 py-6 lg:px-6 2xl:px-8">
-      <div className="hero-band mb-6 flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end">
+      <div className="hero-band mb-6 flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-end">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-zai-blue">ZAI-CTS Operations Portal</p>
-          <h1 className="mt-2 text-4xl font-bold text-zai-ink">Carbon market workflow console</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">ZAI-CTS Operations Portal</p>
+          <h1 className="mt-2 text-4xl font-bold text-slate-900">Carbon market workflow console</h1>
           <p className="mt-3 max-w-3xl text-slate-600">
             Register a project, review it, approve it, issue serialized credits, and inspect the audit trail from one working screen.
           </p>
         </div>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-          <Chip color="primary" label={`${authSession.user.full_name} - ${authSession.user.role}`} />
+          <Chip color="primary" label={`${authSession.user.full_name} - ${authSession.user.role}`} className="!bg-emerald-700 !text-white" />
           <Chip color={health.startsWith("healthy") ? "success" : "warning"} label={`Gateway: ${health}`} />
-          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadProjects()} disabled={isLoading}>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadProjects()} disabled={isLoading} className="!border-emerald-600 !text-emerald-700 hover:!bg-emerald-50">
             Refresh
           </Button>
           <Button variant="outlined" color="error" onClick={signOut}>
@@ -1055,39 +1266,39 @@ export default function RegistryConsole() {
       </div>
 
       <div className="app-frame grid gap-6 lg:grid-cols-[280px_1fr]">
-        <aside className="nav-panel sticky top-6 h-fit rounded-lg border bg-white/90 p-4">
-          <div className="mb-4 rounded-md bg-slate-900 p-4 text-white">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-200">National Platform</p>
+        <aside className="nav-panel sticky top-6 h-fit rounded-2xl border bg-white/90 p-4 shadow-sm">
+          <div className="mb-4 rounded-xl bg-gradient-to-br from-emerald-800 to-teal-900 p-4 text-white shadow-md">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">National Platform</p>
             <strong className="mt-2 block text-xl">ZAI-CTS</strong>
-            <span className="text-sm text-slate-300">{authSession.user.role}</span>
-            <p className="mt-2 break-all text-xs text-slate-400">{authSession.user.email}</p>
+            <span className="text-sm text-emerald-100">{authSession.user.role}</span>
+            <p className="mt-2 break-all text-xs text-emerald-200/70">{authSession.user.email}</p>
           </div>
-          <Stack spacing={1}>
+          <Stack spacing={0.5}>
             {workspaceLinks.map(([value, label, icon]) => (
               <button
                 key={value.toString()}
                 type="button"
                 onClick={() => setActiveTab(value.toString())}
-                className={`flex items-center gap-3 rounded-md px-4 py-3 text-left text-sm font-bold transition ${
-                  activeTab === value ? "bg-sky-100 text-zai-blue shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-zai-ink"
+                className={`flex items-center gap-3 rounded-lg px-4 py-2.5 text-left text-sm font-bold transition ${
+                  activeTab === value ? "bg-emerald-50 text-emerald-700 shadow-sm border border-emerald-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-sky-700 shadow-sm">{icon}</span>
+                <span className={`flex h-8 w-8 items-center justify-center rounded-lg shadow-sm ${activeTab === value ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"}`}>{icon}</span>
                 {label}
               </button>
             ))}
           </Stack>
           <Divider className="my-4" />
-          <div className="rounded-md bg-sky-50 p-4">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Selected Project</span>
-            <strong className="mt-2 block text-sm text-zai-ink">{selectedProject?.project_code ?? "None"}</strong>
+          <div className="rounded-xl bg-emerald-50/60 border border-emerald-100 p-4">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">Selected Project</span>
+            <strong className="mt-2 block text-sm text-slate-900">{selectedProject?.project_code ?? "None"}</strong>
             <p className="mt-1 text-xs leading-5 text-slate-600">{selectedProject?.title ?? "Register or select a project to begin."}</p>
           </div>
         </aside>
 
         <main>
           {message && (
-            <Alert className="mb-6" severity={message.type}>
+            <Alert className="mb-6 rounded-xl" severity={message.type}>
               {message.text}
             </Alert>
           )}
@@ -1096,36 +1307,36 @@ export default function RegistryConsole() {
         <div className="grid gap-6">
           <div className="grid gap-4 md:grid-cols-4">
             {[
-              ["Projects", projects.length],
-              ["Credits", credits.length],
-              ["Evidence", evidenceRecords.length],
-              ["Open Actions", verificationCase?.outstanding_actions.length ?? 0]
-            ].map(([label, value]) => (
-              <Paper key={label.toString()} elevation={0} className="workspace-panel border p-5">
+              ["Projects", projects.length, "text-emerald-600"],
+              ["Credits", credits.length, "text-amber-600"],
+              ["Evidence", evidenceRecords.length, "text-sky-600"],
+              ["Open Actions", verificationCase?.outstanding_actions.length ?? 0, "text-rose-600"]
+            ].map(([label, value, colorClass]) => (
+              <Paper key={label.toString()} elevation={0} className="workspace-panel rounded-2xl border p-5 hover:shadow-md transition-shadow">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
-                <strong className="mt-2 block text-3xl text-zai-blue">{value}</strong>
+                <strong className={`mt-2 block text-3xl ${colorClass}`}>{value}</strong>
               </Paper>
             ))}
           </div>
-          <Paper elevation={0} className="workspace-panel border p-6">
-            <Typography variant="h5" fontWeight={900}>
+          <Paper elevation={0} className="workspace-panel rounded-2xl border p-6">
+            <Typography variant="h5" fontWeight={900} className="text-slate-800">
               Verification operations overview
             </Typography>
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               <div>
-                <Typography variant="h6" fontWeight={800}>Outstanding actions</Typography>
+                <Typography variant="h6" fontWeight={800} className="text-slate-700">Outstanding actions</Typography>
                 <Stack spacing={1.5} className="mt-3">
                   {(verificationCase?.outstanding_actions.length ? verificationCase.outstanding_actions : ["Select a project and start verification."]).map((action) => (
-                    <div key={action} className="rounded-lg border p-4 text-sm text-slate-700">{action}</div>
+                    <div key={action} className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">{action}</div>
                   ))}
                 </Stack>
               </div>
               <div>
-                <Typography variant="h6" fontWeight={800}>Latest audit</Typography>
+                <Typography variant="h6" fontWeight={800} className="text-slate-700">Latest audit</Typography>
                 <Stack spacing={1.5} className="mt-3">
                   {auditEvents.slice(0, 5).map((event) => (
-                    <div key={event.id} className="rounded-lg border p-4">
-                      <strong className="block text-zai-ink">{event.event_type}</strong>
+                    <div key={event.id} className="rounded-xl border bg-slate-50 p-4">
+                      <strong className="block text-slate-800">{event.event_type}</strong>
                       <span className="text-sm text-slate-600">{event.action} - {event.outcome}</span>
                     </div>
                   ))}
@@ -2175,6 +2386,24 @@ export default function RegistryConsole() {
           )}
         </div>
       ) : activeTab === "ai" ? (
+        <AIValidationPanel />
+      ) : activeTab === "ai-reports" ? (
+        <AIReportsPanel />
+      ) : activeTab === "marketplace" ? (
+        <MarketplacePanel />
+      ) : activeTab === "compliance" ? (
+        <CompliancePanel />
+      ) : activeTab === "stakeholders" ? (
+        authSession.user.role === "Project Developer" ? (
+          <ProjectDeveloperPortal />
+        ) : authSession.user.role === "Buyer" ? (
+          <CorporateBuyerPortal />
+        ) : authSession.user.role === "Community Officer" ? (
+          <RDCInterface />
+        ) : (
+          <ZiCMARegulatorDashboard />
+        )
+      ) : activeTab === "ai_legacy" ? (
         <Paper elevation={0} className="workspace-panel border p-8">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
             <div>
@@ -2470,6 +2699,8 @@ export default function RegistryConsole() {
           </div>
         </div>
       ) : activeTab === "article6" ? (
+        <ITMOIssuanceWorkflow />
+      ) : activeTab === "article6_legacy" ? (
         <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
           <Paper elevation={0} className="border p-6">
             <Typography variant="h5" fontWeight={900}>Article 6 and National Accounting Control Centre</Typography>
@@ -2614,6 +2845,8 @@ export default function RegistryConsole() {
             </Stack>
           </Paper>
         </div>
+      ) : activeTab === "anchoring" ? (
+        <AnchorDashboard />
       ) : (
         <div className="grid gap-5">
           <Paper elevation={0} className="border p-6">

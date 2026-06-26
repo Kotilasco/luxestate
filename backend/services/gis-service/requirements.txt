@@ -1,0 +1,25 @@
+# FastAPI
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+
+# Google Earth Engine
+earthengine-api==1.4.1
+
+# PostGIS / PostgreSQL
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+SQLAlchemy==2.0.36
+GeoAlchemy2==0.16.0
+
+# Geospatial
+shapely==2.0.6
+geopandas==1.0.1
+pyproj==3.7.0
+rasterio==1.4.3
+
+# Utilities
+python-dotenv==1.0.1
+httpx==0.28.1
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0

@@ -1,0 +1,17 @@
+{
+  "name": "zai-anchor-chaincode",
+  "version": "1.0.0",
+  "description": "Hyperledger Fabric chaincode for ZAI-CTS Merkle root anchoring",
+  "main": "index.js",
+  "scripts": {
+    "start": "fabric-chaincode-node start"
+  },
+  "dependencies": {
+    "fabric-contract-api": "^2.5.0",
+    "fabric-shim": "^2.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "Apache-2.0"
+}

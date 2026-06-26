@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.dependencies import get_audit_reader, get_audit_writer, get_credit_batch_repository, get_project_repository
 from app.application.ports import AuditReader, AuditWriter, CarbonProjectRepository, CreditBatchRepository
 from app.domain.entities.carbon_project import CarbonProject, ProjectStatus
+from app.infrastructure.security.current_user import SESSIONS
 from app.main import create_app
 
 
@@ -148,10 +149,39 @@ async def test_projects_api_register_and_list() -> None:
     app.dependency_overrides[get_credit_batch_repository] = credit_override
     app.dependency_overrides[get_audit_reader] = audit_reader_override
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    # Create a test session for authentication
+    test_token = "test_token_for_project_developer"
+    from app.api.v1.auth import USERS
+    # Find or create a project developer user
+    test_user_id = uuid4()
+    USERS["test_project_dev@example.com"] = {
+        "id": test_user_id,
+        "full_name": "Test Project Developer",
+        "email": "test_project_dev@example.com",
+        "role": "Project Developer",
+        "status": "approved",
+        "salt": "test_salt",
+        "password_hash": "test_hash",
+        "email_verified": True,
+        "mfa_enabled": False,
+        "organization": None,
+        "digital_signature": "SIG-TEST",
+        "created_at": datetime.now(tz=UTC),
+    }
+    SESSIONS[test_token] = {
+        "user_email": "test_project_dev@example.com",
+        "expires_at": datetime.now(tz=UTC) + timedelta(hours=8),
+        "created_at": datetime.now(tz=UTC),
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {test_token}"},
+    ) as client:
         response = await client.post(
             "/api/v1/projects",
-            headers={"X-Actor-Role": "project_developer.owner"},
+            headers={"Authorization": f"Bearer {test_token}"},
             json={
                 "project_code": "ZAI-20250002",
                 "title": "Hwange Community Carbon Programme",
@@ -176,6 +206,30 @@ async def test_projects_api_register_and_list() -> None:
         assert get_response.status_code == 200
         assert get_response.json()["project_code"] == "ZAI-20250002"
 
+        # Workflow actions require different permissions - use Registry Manager for approval
+        admin_token = "test_admin_token_for_workflow"
+        from app.api.v1.auth import USERS
+        USERS["admin_workflow@test.com"] = {
+            "id": uuid4(),
+            "full_name": "Test Registry Manager",
+            "email": "admin_workflow@test.com",
+            "role": "Super Administrator",  # Has all permissions including PROJECTS_APPROVE
+            "status": "approved",
+            "salt": "test_salt",
+            "password_hash": "test_hash",
+            "email_verified": True,
+            "mfa_enabled": False,
+            "organization": None,
+            "digital_signature": "SIG-ADMIN",
+            "created_at": datetime.now(tz=UTC),
+        }
+        SESSIONS[admin_token] = {
+            "user_email": "admin_workflow@test.com",
+            "expires_at": datetime.now(tz=UTC) + timedelta(hours=8),
+            "created_at": datetime.now(tz=UTC),
+        }
+        client.headers["Authorization"] = f"Bearer {admin_token}"
+
         for action, expected_status in [
             ("submit_for_verification", "submitted_for_verification"),
             ("start_verification", "under_verification"),
@@ -183,7 +237,7 @@ async def test_projects_api_register_and_list() -> None:
         ]:
             workflow_response = await client.patch(
                 f"/api/v1/projects/{project_id}/workflow",
-                headers={"X-Actor-Role": "regulator.approver"},
+                headers={"Authorization": f"Bearer {admin_token}"},
                 json={"action": action, "reason": "Integration test workflow action."},
             )
             assert workflow_response.status_code == 200
@@ -191,7 +245,7 @@ async def test_projects_api_register_and_list() -> None:
 
         start_verification_response = await client.post(
             f"/api/v1/projects/{project_id}/verification/start",
-            headers={"X-Actor-Role": "project_developer.owner"},
+            headers={"Authorization": f"Bearer {test_token}"},
             json={
                 "monitoring_period_start": "2026-01-01",
                 "monitoring_period_end": "2026-12-31",
@@ -203,7 +257,7 @@ async def test_projects_api_register_and_list() -> None:
 
         evidence_package_response = await client.post(
             f"/api/v1/projects/{project_id}/verification/evidence-package",
-            headers={"X-Actor-Role": "project_developer.owner"},
+            headers={"Authorization": f"Bearer {test_token}"},
             json={
                 "package_notes": "Complete evidence package.",
                 "files": [
@@ -294,7 +348,7 @@ async def test_projects_api_register_and_list() -> None:
 
         credit_response = await client.post(
             f"/api/v1/projects/{project_id}/credits",
-            headers={"X-Actor-Role": "regulator.approver"},
+            headers={"Authorization": f"Bearer {admin_token}"},
             json={"vintage_year": 2026, "quantity_tco2e": "50000.0000"},
         )
         assert credit_response.status_code == 201

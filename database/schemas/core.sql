@@ -266,6 +266,11 @@ CREATE TABLE IF NOT EXISTS audit.audit_events (
     action VARCHAR(120) NOT NULL,
     outcome VARCHAR(40) NOT NULL,
     ip_address INET NULL,
+    device VARCHAR(255) NULL,
+    workflow_step VARCHAR(160) NULL,
+    digital_signature VARCHAR(255) NULL,
+    old_value JSONB NULL,
+    new_value JSONB NULL,
     correlation_id UUID NOT NULL,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -294,3 +299,45 @@ INSERT INTO identity.organizations (
     'regulator',
     'active'
 ) ON CONFLICT (registration_number) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS registry.anchor_batches (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    batch_name VARCHAR(120) NOT NULL,
+    from_record_id UUID NULL,
+    to_record_id UUID NULL,
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    merkle_root VARCHAR(64) NOT NULL,
+    previous_anchor_id UUID NULL REFERENCES registry.anchor_batches(id),
+    previous_anchor_hash VARCHAR(64) NULL,
+    fabric_tx_id VARCHAR(128) NULL,
+    fabric_block_number INTEGER NULL,
+    anchored_at TIMESTAMPTZ NULL,
+    status VARCHAR(40) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_anchor_batches_status
+    ON registry.anchor_batches(status);
+
+CREATE TABLE IF NOT EXISTS registry.carbon_credit_entries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    batch_id UUID NOT NULL REFERENCES registry.carbon_credit_batches(id),
+    serial_number VARCHAR(80) NOT NULL UNIQUE,
+    vintage_year INTEGER NOT NULL CHECK (vintage_year >= 2000),
+    quantity_tco2e NUMERIC(18, 4) NOT NULL CHECK (quantity_tco2e > 0),
+    entry_hash VARCHAR(64) NOT NULL,
+    anchor_batch_id UUID NULL REFERENCES registry.anchor_batches(id),
+    status VARCHAR(40) NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_credit_entries_anchor
+    ON registry.carbon_credit_entries(anchor_batch_id);
+
+CREATE INDEX IF NOT EXISTS idx_credit_entries_batch
+    ON registry.carbon_credit_entries(batch_id);
+
+ALTER TABLE registry.anchor_batches
+    ADD CONSTRAINT fk_from_record FOREIGN KEY (from_record_id) REFERENCES registry.carbon_credit_entries(id) DEFERRABLE INITIALLY DEFERRED,
+    ADD CONSTRAINT fk_to_record FOREIGN KEY (to_record_id) REFERENCES registry.carbon_credit_entries(id) DEFERRABLE INITIALLY DEFERRED;

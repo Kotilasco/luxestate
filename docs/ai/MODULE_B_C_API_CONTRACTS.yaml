@@ -1,0 +1,783 @@
+openapi: 3.1.0
+info:
+  title: ZAI-CTS Modules B & C - Marketplace & Compliance API
+  version: 1.0.0
+  description: |
+    Smart Marketplace with Dynamic Pricing and Regulatory Compliance services.
+    
+    ## Module B: Smart Marketplace
+    - **Dynamic Pricing:** Real-time pricing based on global demand, NDC cycles, vintage
+    - **Bilateral Matching:** AI matching of credits with buyer NDC targets
+    - **Trading Engine:** Order book and settlement
+    
+    ## Module C: Regulatory Compliance
+    - **Serialization & Retirement:** Blockchain retirement with UN reporting
+    - **Authorization Workflow:** Digital LoA for Article 6 transfers
+
+servers:
+  - url: http://localhost:8106
+    description: Marketplace Service
+  - url: http://localhost:8107
+    description: Compliance Service
+
+paths:
+  # ===== Module B: Marketplace - Pricing =====
+  /api/v1/marketplace/pricing/current:
+    get:
+      tags: [Marketplace - Pricing]
+      summary: Get current market prices
+      parameters:
+        - name: credit_type
+          in: query
+          schema:
+            type: string
+            enum: [authorized, non_authorized]
+        - name: vintage_year
+          in: query
+          schema:
+            type: integer
+        - name: project_type
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current pricing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentPricingResponse'
+
+  /api/v1/marketplace/pricing/calculate:
+    post:
+      tags: [Marketplace - Pricing]
+      summary: Calculate price for specific credits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PriceCalculationRequest'
+      responses:
+        '200':
+          description: Calculated price
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceCalculationResponse'
+
+  /api/v1/marketplace/pricing/history:
+    get:
+      tags: [Marketplace - Pricing]
+      summary: Get price history
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Price history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHistoryResponse'
+
+  /api/v1/marketplace/pricing/forecast:
+    get:
+      tags: [Marketplace - Pricing]
+      summary: Get price forecast
+      parameters:
+        - name: months
+          in: query
+          schema:
+            type: integer
+            default: 6
+      responses:
+        '200':
+          description: Price forecast
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceForecastResponse'
+
+  # ===== Module B: Marketplace - Matching =====
+  /api/v1/marketplace/matching/find:
+    post:
+      tags: [Marketplace - Matching]
+      summary: Find matching credits for buyer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchingRequest'
+      responses:
+        '200':
+          description: Matching results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchingResponse'
+
+  /api/v1/marketplace/matching/opportunities:
+    get:
+      tags: [Marketplace - Matching]
+      summary: Get current matching opportunities
+      parameters:
+        - name: buyer_country
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Opportunities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpportunitiesResponse'
+
+  /api/v1/marketplace/matching/preferences:
+    post:
+      tags: [Marketplace - Matching]
+      summary: Set buyer matching preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchingPreferences'
+      responses:
+        '200':
+          description: Preferences saved
+
+  # ===== Module B: Marketplace - Trading =====
+  /api/v1/marketplace/listings:
+    get:
+      tags: [Marketplace - Trading]
+      summary: List available credits
+      responses:
+        '200':
+          description: Listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingsResponse'
+
+    post:
+      tags: [Marketplace - Trading]
+      summary: Create new listing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListingRequest'
+      responses:
+        '201':
+          description: Listing created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditListing'
+
+  /api/v1/marketplace/trades:
+    post:
+      tags: [Marketplace - Trading]
+      summary: Execute trade
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TradeRequest'
+      responses:
+        '201':
+          description: Trade executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TradeResult'
+
+  # ===== Module C: Compliance - Retirement =====
+  /api/v1/compliance/retirement/serialize:
+    post:
+      tags: [Compliance - Retirement]
+      summary: Serialize credits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SerializationRequest'
+      responses:
+        '201':
+          description: Credits serialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SerializationResponse'
+
+  /api/v1/compliance/retirement/retire:
+    post:
+      tags: [Compliance - Retirement]
+      summary: Retire credits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetirementRequest'
+      responses:
+        '201':
+          description: Credits retired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetirementResponse'
+
+  /api/v1/compliance/retirement/status/{serialNumber}:
+    get:
+      tags: [Compliance - Retirement]
+      summary: Check retirement status
+      parameters:
+        - name: serialNumber
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetirementStatus'
+
+  /api/v1/compliance/retirement/un-file/{transactionId}:
+    get:
+      tags: [Compliance - Retirement]
+      summary: Get UN reporting file
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: UN file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UNReportingFile'
+
+  # ===== Module C: Compliance - Authorization =====
+  /api/v1/compliance/authorization/apply:
+    post:
+      tags: [Compliance - Authorization]
+      summary: Apply for Article 6 authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizationApplication'
+      responses:
+        '201':
+          description: Application submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationApplicationResponse'
+
+  /api/v1/compliance/authorization/status/{applicationId}:
+    get:
+      tags: [Compliance - Authorization]
+      summary: Check authorization status
+      parameters:
+        - name: applicationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationStatus'
+
+  /api/v1/compliance/authorization/loa/{applicationId}:
+    get:
+      tags: [Compliance - Authorization]
+      summary: Get Letter of Authorization
+      parameters:
+        - name: applicationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: LoA document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LOADocument'
+
+  /api/v1/compliance/authorization/zicma/approve:
+    post:
+      tags: [Compliance - Authorization]
+      summary: ZiCMA approves authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZiCMADecision'
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationStatus'
+
+  /api/v1/compliance/authorization/paris-sync:
+    get:
+      tags: [Compliance - Authorization]
+      summary: Sync with Paris Agreement Registry
+      responses:
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParisSyncStatus'
+
+components:
+  schemas:
+    # ===== Pricing =====
+    CurrentPricingResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/PricePoint'
+
+    PricePoint:
+      type: object
+      properties:
+        credit_type:
+          type: string
+          enum: [authorized, non_authorized]
+        vintage_year:
+          type: integer
+        project_type:
+          type: string
+        price_usd:
+          type: number
+        currency:
+          type: string
+          default: USD
+        factors:
+          type: object
+          properties:
+            global_demand_factor:
+              type: number
+            ndc_cycle_factor:
+              type: number
+            vintage_factor:
+              type: number
+            authorization_premium:
+              type: number
+        confidence:
+          type: number
+
+    PriceCalculationRequest:
+      type: object
+      required: [project_id, quantity, vintage_year, credit_type]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        quantity:
+          type: number
+        vintage_year:
+          type: integer
+        credit_type:
+          type: string
+          enum: [authorized, non_authorized]
+        project_type:
+          type: string
+
+    PriceCalculationResponse:
+      type: object
+      properties:
+        calculated_price_usd:
+          type: number
+        price_per_tco2e:
+          type: number
+        total_value:
+          type: number
+        factors:
+          type: object
+        recommended_listing_price:
+          type: number
+
+    # ===== Matching =====
+    MatchingRequest:
+      type: object
+      required: [buyer_id, ndc_target]
+      properties:
+        buyer_id:
+          type: string
+          format: uuid
+        buyer_country:
+          type: string
+        ndc_target:
+          type: object
+          properties:
+            target_type:
+              type: string
+              enum: [scope_1, scope_2, scope_3]
+            sector:
+              type: string
+            quantity_needed:
+              type: number
+            vintage_preference:
+              type: string
+        budget_range:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+        authorization_required:
+          type: boolean
+
+    MatchingResponse:
+      type: object
+      properties:
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchResult'
+        total_available:
+          type: integer
+        best_match:
+          $ref: '#/components/schemas/MatchResult'
+
+    MatchResult:
+      type: object
+      properties:
+        match_id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        project_name:
+          type: string
+        host_country:
+          type: string
+        compatibility_score:
+          type: number
+        ndc_alignment_score:
+          type: number
+        scope_match:
+          type: boolean
+        price_per_tco2e:
+          type: number
+        quantity_available:
+          type: number
+        authorization_status:
+          type: string
+        recommendation:
+          type: string
+
+    # ===== Trading =====
+    CreditListing:
+      type: object
+      properties:
+        listing_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        project_name:
+          type: string
+        seller_id:
+          type: string
+          format: uuid
+        serial_numbers:
+          type: array
+          items:
+            type: string
+        vintage_year:
+          type: integer
+        quantity_tco2e:
+          type: number
+        credit_type:
+          type: string
+          enum: [authorized, non_authorized]
+        project_type:
+          type: string
+        price_per_tco2e:
+          type: number
+        authorization_status:
+          type: string
+        scope:
+          type: string
+        listed_at:
+          type: string
+          format: date-time
+
+    CreateListingRequest:
+      type: object
+      required: [project_id, quantity, price_per_tco2e]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        quantity:
+          type: number
+        price_per_tco2e:
+          type: number
+        credit_type:
+          type: string
+
+    TradeRequest:
+      type: object
+      required: [listing_id, buyer_id, quantity]
+      properties:
+        listing_id:
+          type: string
+          format: uuid
+        buyer_id:
+          type: string
+          format: uuid
+        quantity:
+          type: number
+        price_agreed:
+          type: number
+
+    TradeResult:
+      type: object
+      properties:
+        trade_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, completed, failed]
+        transaction_hash:
+          type: string
+        settlement_date:
+          type: string
+          format: date-time
+        total_value:
+          type: number
+
+    # ===== Retirement =====
+    SerializationRequest:
+      type: object
+      required: [project_id, quantity]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        quantity:
+          type: number
+        vintage_year:
+          type: integer
+
+    SerializationResponse:
+      type: object
+      properties:
+        serial_numbers:
+          type: array
+          items:
+            type: string
+        blockchain_tx_hash:
+          type: string
+
+    RetirementRequest:
+      type: object
+      required: [serial_numbers, buyer_id, purpose]
+      properties:
+        serial_numbers:
+          type: array
+          items:
+            type: string
+        buyer_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          enum: [ndc_compliance, voluntary, corsia]
+        corresponding_adjustment:
+          type: boolean
+
+    RetirementResponse:
+      type: object
+      properties:
+        retirement_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        blockchain_confirmation:
+          type: string
+        zcr_retirement_id:
+          type: string
+        un_file_url:
+          type: string
+
+    RetirementStatus:
+      type: object
+      properties:
+        serial_number:
+          type: string
+        status:
+          type: string
+          enum: [active, retired, transferred]
+        retirement_date:
+          type: string
+          format: date-time
+        owner:
+          type: string
+        blockchain_proof:
+          type: string
+
+    UNReportingFile:
+      type: object
+      properties:
+        transaction_id:
+          type: string
+        file_format:
+          type: string
+          enum: [json, xml, csv]
+        download_url:
+          type: string
+        file_content:
+          type: object
+
+    # ===== Authorization =====
+    AuthorizationApplication:
+      type: object
+      required: [project_id, applicant_id, quantity_requested]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        applicant_id:
+          type: string
+          format: uuid
+        quantity_requested:
+          type: number
+        intended_buyer_country:
+          type: string
+        authorization_purpose:
+          type: string
+        supporting_documents:
+          type: array
+          items:
+            type: string
+
+    AuthorizationApplicationResponse:
+      type: object
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [draft, submitted, under_review, approved, rejected, transferred]
+        submitted_at:
+          type: string
+          format: date-time
+        estimated_review_days:
+          type: integer
+
+    AuthorizationStatus:
+      type: object
+      properties:
+        application_id:
+          type: string
+        status:
+          type: string
+        loa_issued:
+          type: boolean
+        loa_issue_date:
+          type: string
+          format: date-time
+        authorized_quantity:
+          type: number
+        paris_registry_id:
+          type: string
+        expiry_date:
+          type: string
+          format: date-time
+
+    LOADocument:
+      type: object
+      properties:
+        application_id:
+          type: string
+        loa_number:
+          type: string
+        document_url:
+          type: string
+        issued_by:
+          type: string
+        issued_date:
+          type: string
+          format: date-time
+        valid_until:
+          type: string
+          format: date-time
+
+    ZiCMADecision:
+      type: object
+      required: [application_id, decision]
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        decision:
+          type: string
+          enum: [approve, reject, request_info]
+        authorized_quantity:
+          type: number
+        conditions:
+          type: array
+          items:
+            type: string
+        reviewer_notes:
+          type: string
+
+    ParisSyncStatus:
+      type: object
+      properties:
+        last_sync:
+          type: string
+          format: date-time
+        paris_registry_status:
+          type: string
+        itmos_issued:
+          type: integer
+        itmos_transferred:
+          type: integer

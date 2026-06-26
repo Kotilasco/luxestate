@@ -2,16 +2,143 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 :root {
   color-scheme: light;
+
+  /* ZAI-CTS Carbon Theme */
+  --zai-primary: #059669;
+  --zai-primary-dark: #047857;
+  --zai-primary-light: #d1fae5;
+  --zai-secondary: #0f766e;
+  --zai-accent: #f59e0b;
+  --zai-ink: #0f172a;
+  --zai-slate: #64748b;
+  --zai-success: #16a34a;
+  --zai-warning: #ea580c;
+  --zai-error: #dc2626;
+  --zai-info: #2563eb;
+
+  /* Surface colors */
+  --surface-primary: #ffffff;
+  --surface-secondary: #f8fafc;
+  --surface-tertiary: #f1f5f9;
+  --surface-elevated: #ffffff;
+  --border-color: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
 }
 
 body {
-  background:
-    radial-gradient(circle at 15% 10%, rgba(14, 165, 233, 0.16), transparent 26rem),
-    radial-gradient(circle at 85% 5%, rgba(34, 197, 94, 0.12), transparent 22rem),
-    linear-gradient(180deg, #eef6fb 0%, #f7fbfd 42%, #eef5f8 100%);
-  color: #0f2d3d;
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom utility classes */
+.card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--zai-primary) 0%, var(--zai-secondary) 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+}
+
+.btn-secondary {
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: var(--surface-secondary);
+}
+
+.input-modern {
+  background: var(--surface-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--text-primary);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+}
+
+.input-modern:focus {
+  outline: none;
+  border-color: var(--zai-primary);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-draft { background: #f1f5f9; color: #475569; }
+.badge-submitted { background: #dbeafe; color: #1e40af; }
+.badge-verification { background: #fef3c7; color: #92400e; }
+.badge-approved { background: #d1fae5; color: #065f46; }
+.badge-rejected { background: #fee2e2; color: #991b1b; }
+.badge-issued { background: #ccfbf1; color: #115e59; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
 }
 
 @keyframes rise-in {
@@ -32,6 +159,11 @@ body {
   50% {
     box-shadow: 0 0 0 10px rgba(14, 165, 233, 0);
   }
+}
+
+@keyframes skeleton-loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .enterprise-shell {
@@ -65,7 +197,7 @@ body {
 }
 
 .MuiButton-contained {
-  animation: soft-pulse 3.4s ease-in-out infinite;
+  box-shadow: none;
 }
 
 .map-marker {
@@ -74,4 +206,41 @@ body {
 
 .gis-layer-card:hover {
   cursor: pointer;
+}
+
+.MuiPaper-root,
+.MuiCard-root,
+.MuiDialog-paper {
+  border-radius: 8px !important;
+}
+
+.MuiCard-root,
+.MuiPaper-root {
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.MuiCard-root:hover {
+  border-color: rgba(2, 132, 199, 0.38);
+  box-shadow: 0 12px 30px rgba(15, 45, 61, 0.1);
+  transform: translateY(-2px);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: 3px solid rgba(2, 132, 199, 0.45);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
 }

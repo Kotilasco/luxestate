@@ -40,7 +40,12 @@ from app.application.ports import AuditReader, AuditWriter, CarbonProjectReposit
 from app.application.queries.get_projects import GetCarbonProjectQuery, ListCarbonProjectsQuery
 from app.config import get_settings
 from app.domain.entities.carbon_project import ProjectStatus
-from app.infrastructure.security.current_user import CurrentUser, get_current_user
+from app.infrastructure.security.rbac import (
+    AuthenticatedUser,
+    Permission,
+    check_permission,
+    get_authenticated_user,
+)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["Carbon Projects"])
 
@@ -343,15 +348,21 @@ def _build_verification_case(project_id: UUID, events: list[object]) -> Verifica
     "",
     response_model=CarbonProjectResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={409: {"model": ErrorResponse}},
+    responses={
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        409: {"model": ErrorResponse},
+    },
 )
 async def register_project(
     request: RegisterCarbonProjectRequest,
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> CarbonProjectResponse:
+    # RBAC: Only users with PROJECTS_CREATE permission can register projects
+    check_permission(current_user, Permission.PROJECTS_CREATE)
+    
     command = RegisterCarbonProjectCommand(repository, audit_writer)
     return await command.execute(
         request,
@@ -380,15 +391,34 @@ async def get_project(
     return await query.execute(project_id)
 
 
-@router.patch("/{project_id}/workflow", response_model=CarbonProjectResponse, responses={404: {"model": ErrorResponse}})
+@router.patch(
+    "/{project_id}/workflow",
+    response_model=CarbonProjectResponse,
+    responses={
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
 async def advance_project_workflow(
     project_id: UUID,
     request: ProjectWorkflowRequest,
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> CarbonProjectResponse:
+    # RBAC: Check permissions based on action type
+    action_permissions = {
+        "submit_for_verification": Permission.VERIFICATION_START,
+        "start_verification": Permission.VERIFICATION_START,
+        "approve": Permission.PROJECTS_APPROVE,
+        "reject": Permission.PROJECTS_APPROVE,
+        "suspend": Permission.PROJECTS_SUSPEND,
+    }
+    required_permission = action_permissions.get(request.action, Permission.PROJECTS_REVIEW)
+    check_permission(current_user, required_permission)
+    
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -435,7 +465,11 @@ async def advance_project_workflow(
     "/{project_id}/credits",
     response_model=CreditBatchResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={404: {"model": ErrorResponse}},
+    responses={
+        403: {"model": ErrorResponse, "description": "Permission denied"},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
 )
 async def issue_credit_batch(
     project_id: UUID,
@@ -444,9 +478,12 @@ async def issue_credit_batch(
     credit_repository: CreditBatchRepository = Depends(get_credit_batch_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> CreditBatchResponse:
+    # RBAC: Only users with CREDITS_ISSUE permission can issue credits
+    check_permission(current_user, Permission.CREDITS_ISSUE)
+    
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -519,9 +556,10 @@ async def start_verification_case(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> VerificationCaseResponse:
+    check_permission(current_user, Permission.VERIFICATION_START)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -575,9 +613,10 @@ async def upload_verification_evidence_package(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> EvidencePackageResponse:
+    check_permission(current_user, Permission.EVIDENCE_UPLOAD)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -639,13 +678,14 @@ async def upload_verification_evidence_files(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
     package_notes: str = Form(..., min_length=10, max_length=1000),
     categories: list[str] = Form(...),
     digital_signatures: list[str] = Form(...),
     files: list[UploadFile] = File(...),
 ) -> EvidencePackageResponse:
+    check_permission(current_user, Permission.EVIDENCE_UPLOAD)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -757,9 +797,10 @@ async def run_automatic_verification_validation(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> VerificationAssessmentResponse:
+    check_permission(current_user, Permission.VERIFICATION_REVIEW)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -809,9 +850,10 @@ async def run_verification_ai_assessment(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> VerificationAssessmentResponse:
+    check_permission(current_user, Permission.AI_REVIEW)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -868,9 +910,10 @@ async def record_verification_case_action(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> dict[str, object]:
+    check_permission(current_user, Permission.VERIFICATION_REVIEW)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -920,9 +963,16 @@ async def decide_verification_stage(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> VerificationDecisionResponse:
+    stage_permissions = {
+        "gis": Permission.GIS_REVIEW,
+        "mrv": Permission.MRV_REVIEW,
+        "verifier": Permission.VERIFICATION_DECIDE,
+        "zicma": Permission.PROJECTS_APPROVE,
+    }
+    check_permission(current_user, stage_permissions[stage])
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -976,9 +1026,10 @@ async def run_gis_assessment(
     project_id: UUID,
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> GisAssessmentResponse:
+    check_permission(current_user, Permission.GIS_REVIEW)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -1049,9 +1100,10 @@ async def run_ai_review(
     project_id: UUID,
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> AiReviewResponse:
+    check_permission(current_user, Permission.AI_REVIEW)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -1129,9 +1181,10 @@ async def submit_gis_evidence(
     request: GisEvidenceSubmissionRequest,
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> EvidenceRecordResponse:
+    check_permission(current_user, Permission.GIS_REVIEW)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -1205,9 +1258,10 @@ async def validate_gis_evidence(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> ValidationDecisionResponse:
+    check_permission(current_user, Permission.GIS_REVIEW)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")
@@ -1254,9 +1308,10 @@ async def validate_ai_review(
     repository: CarbonProjectRepository = Depends(get_project_repository),
     audit_reader: AuditReader = Depends(get_audit_reader),
     audit_writer: AuditWriter = Depends(get_audit_writer),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
     x_correlation_id: UUID | None = Header(default=None, alias="X-Correlation-Id"),
 ) -> ValidationDecisionResponse:
+    check_permission(current_user, Permission.AI_OVERRIDE)
     project = await repository.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carbon project was not found.")

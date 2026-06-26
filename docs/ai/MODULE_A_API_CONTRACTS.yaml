@@ -1,0 +1,922 @@
+openapi: 3.1.0
+info:
+  title: ZAI-CTS Module A - AI Validation & MRV API
+  version: 1.0.0
+  description: |
+    AI-powered project validation and MRV services for Zimbabwe Carbon Trading System.
+    
+    ## Components
+    - **PDD Co-Pilot**: Assists in Project Design Document creation and validation
+    - **Additionality Checker**: Assesses project additionality against legislation
+    - **Remote Sensing Agent**: Satellite imagery analysis for carbon stock estimation
+    
+    ## Governance
+    All AI outputs include:
+    - `confidence_score`: Model confidence (0.0-1.0)
+    - `explanation`: Human-readable reasoning
+    - `evidence_references`: Source citations
+    - `model_version`: Model identifier
+    - `audit_event_id`: Traceability ID
+
+servers:
+  - url: http://localhost:8103
+    description: Local development
+  - url: https://api.zai-cts.gov.zw/ai
+    description: Production
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: PDD Co-Pilot
+    description: Project Design Document AI assistant
+  - name: Additionality Checker
+    description: Additionality assessment against legislation
+  - name: Remote Sensing
+    description: Satellite imagery analysis and monitoring
+  - name: AI Governance
+    description: Audit, override, and explanation endpoints
+
+paths:
+  # ===== PDD Co-Pilot =====
+  /api/v1/ai/pdd/draft:
+    post:
+      tags: [PDD Co-Pilot]
+      summary: Generate PDD draft from natural language description
+      operationId: generatePDDDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PDDDraftRequest'
+      responses:
+        '201':
+          description: PDD draft created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PDDDraftResponse'
+        '400':
+          description: Invalid input
+        '403':
+          description: Insufficient permissions
+
+  /api/v1/ai/pdd/validate:
+    post:
+      tags: [PDD Co-Pilot]
+      summary: Validate PDD against SI 48 formatting rules
+      operationId: validatePDD
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PDDValidationRequest'
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PDDValidationResponse'
+
+  /api/v1/ai/pdd/suggest-method:
+    post:
+      tags: [PDD Co-Pilot]
+      summary: Suggest applicable methodologies for project
+      operationId: suggestMethodologies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MethodologySuggestionRequest'
+      responses:
+        '200':
+          description: Methodology suggestions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MethodologySuggestionResponse'
+
+  /api/v1/ai/pdd/templates:
+    get:
+      tags: [PDD Co-Pilot]
+      summary: List available PDD templates
+      operationId: listTemplates
+      responses:
+        '200':
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateList'
+
+  # ===== Additionality Checker =====
+  /api/v1/ai/additionality/analyze:
+    post:
+      tags: [Additionality Checker]
+      summary: Full additionality assessment
+      operationId: analyzeAdditionality
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdditionalityRequest'
+      responses:
+        '201':
+          description: Assessment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdditionalityResponse'
+        '202':
+          description: Assessment queued for processing
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL to check status
+
+  /api/v1/ai/additionality/status/{assessmentId}:
+    get:
+      tags: [Additionality Checker]
+      summary: Check additionality assessment status
+      operationId: getAdditionalityStatus
+      parameters:
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Assessment status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentStatus'
+
+  /api/v1/ai/additionality/baseline:
+    post:
+      tags: [Additionality Checker]
+      summary: Calculate baseline scenario
+      operationId: calculateBaseline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BaselineRequest'
+      responses:
+        '200':
+          description: Baseline calculation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaselineResponse'
+
+  /api/v1/ai/additionality/legislation:
+    post:
+      tags: [Additionality Checker]
+      summary: Check project against relevant legislation
+      operationId: checkLegislation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LegislationCheckRequest'
+      responses:
+        '200':
+          description: Legislation analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegislationCheckResponse'
+
+  /api/v1/ai/additionality/explain/{assessmentId}:
+    get:
+      tags: [Additionality Checker]
+      summary: Get human-readable explanation of assessment
+      operationId: explainAdditionality
+      parameters:
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Explanation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplanationResponse'
+
+  # ===== Remote Sensing Agent =====
+  /api/v1/ai/remote-sensing/analyze:
+    post:
+      tags: [Remote Sensing]
+      summary: Analyze project area using satellite imagery
+      operationId: analyzeRemoteSensing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteSensingRequest'
+      responses:
+        '201':
+          description: Analysis initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteSensingResponse'
+        '202':
+          description: Analysis queued
+          headers:
+            Location:
+              schema:
+                type: string
+
+  /api/v1/ai/remote-sensing/status/{analysisId}:
+    get:
+      tags: [Remote Sensing]
+      summary: Check analysis status
+      operationId: getRemoteSensingStatus
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Analysis status and results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteSensingStatus'
+
+  /api/v1/ai/remote-sensing/anomalies:
+    post:
+      tags: [Remote Sensing]
+      summary: Detect anomalies in project area
+      operationId: detectAnomalies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnomalyDetectionRequest'
+      responses:
+        '200':
+          description: Detected anomalies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnomalyDetectionResponse'
+
+  /api/v1/ai/remote-sensing/forecast/{analysisId}:
+    get:
+      tags: [Remote Sensing]
+      summary: Get carbon stock forecast
+      operationId: getForecast
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: years
+          in: query
+          schema:
+            type: integer
+            default: 5
+            maximum: 10
+      responses:
+        '200':
+          description: Carbon forecast
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarbonForecastResponse'
+
+  /api/v1/ai/remote-sensing/alert-config:
+    post:
+      tags: [Remote Sensing]
+      summary: Configure anomaly alert thresholds
+      operationId: configureAlerts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertConfigRequest'
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertConfigResponse'
+
+  # ===== AI Governance =====
+  /api/v1/ai/explain/{validationId}:
+    get:
+      tags: [AI Governance]
+      summary: Get explanation for AI validation result
+      operationId: explainValidation
+      parameters:
+        - name: validationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Explanation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIExplanation'
+
+  /api/v1/ai/override/{validationId}:
+    post:
+      tags: [AI Governance]
+      summary: Request human override of AI decision
+      operationId: overrideValidation
+      parameters:
+        - name: validationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverrideRequest'
+      responses:
+        '200':
+          description: Override processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverrideResponse'
+
+  /api/v1/ai/audit:
+    get:
+      tags: [AI Governance]
+      summary: Query AI audit log
+      operationId: queryAuditLog
+      parameters:
+        - name: project_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: component
+          in: query
+          schema:
+            type: string
+            enum: [pdd, additionality, remote_sensing]
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ===== Common =====
+    AIResultMetadata:
+      type: object
+      required: [confidence_score, model_version, audit_event_id]
+      properties:
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.87
+        explanation:
+          type: string
+          example: "Analysis indicates high additionality due to significant financial barriers"
+        evidence_references:
+          type: array
+          items:
+            type: string
+          example: ["leg-48-2025-sec3", "vcs-vm0015"]
+        model_version:
+          type: string
+          example: "gpt-4-2024-08"
+        prompt_version:
+          type: string
+          example: "v2.3.1"
+        audit_event_id:
+          type: string
+          format: uuid
+        human_override_status:
+          type: string
+          enum: [none, requested, approved, rejected]
+
+    # ===== PDD Co-Pilot =====
+    PDDDraftRequest:
+      type: object
+      required: [project_id, description]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+          example: "A 500-hectare reforestation project in Manicaland province using native species to restore degraded forest land"
+        project_type:
+          type: string
+          enum: [forestry, agriculture, renewable_energy, waste, industrial]
+        location:
+          type: object
+          properties:
+            district:
+              type: string
+            province:
+              type: string
+            coordinates:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+
+    PDDDraftResponse:
+      type: object
+      properties:
+        draft_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        structured_sections:
+          type: object
+          properties:
+            executive_summary:
+              type: string
+            project_description:
+              type: string
+            baseline_scenario:
+              type: string
+            additionality:
+              type: string
+            monitoring_plan:
+              type: string
+        methodology_suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/MethodologyMatch'
+        compliance_score:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 85
+        missing_fields:
+          type: array
+          items:
+            type: string
+        suggested_improvements:
+          type: array
+          items:
+            type: string
+        metadata:
+          $ref: '#/components/schemas/AIResultMetadata'
+
+    MethodologyMatch:
+      type: object
+      properties:
+        methodology_id:
+          type: string
+          example: "VCS-VM0015"
+        name:
+          type: string
+          example: "Afforestation, Reforestation and Revegetation"
+        relevance_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        applicability_conditions:
+          type: array
+          items:
+            type: string
+
+    PDDValidationRequest:
+      type: object
+      required: [pdd_content]
+      properties:
+        pdd_content:
+          type: object
+          description: Full PDD document structure
+
+    PDDValidationResponse:
+      type: object
+      properties:
+        is_compliant:
+          type: boolean
+        si48_score:
+          type: number
+          minimum: 0
+          maximum: 100
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/SI48Violation'
+        suggestions:
+          type: array
+          items:
+            type: string
+        metadata:
+          $ref: '#/components/schemas/AIResultMetadata'
+
+    SI48Violation:
+      type: object
+      properties:
+        section:
+          type: string
+          example: "4.2.1"
+        severity:
+          type: string
+          enum: [error, warning, info]
+        message:
+          type: string
+        suggestion:
+          type: string
+
+    # ===== Additionality =====
+    AdditionalityRequest:
+      type: object
+      required: [project_id, project_description]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        project_description:
+          type: string
+        project_type:
+          type: string
+        location:
+          type: object
+        financial_data:
+          type: object
+          properties:
+            investment_required_usd:
+              type: number
+            carbon_revenue_percentage:
+              type: number
+            payback_period_years:
+              type: number
+        barriers:
+          type: array
+          items:
+            type: string
+
+    AdditionalityResponse:
+      type: object
+      properties:
+        assessment_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        overall_score:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 78
+        conclusion:
+          type: string
+          enum: [additional, not_additional, inconclusive]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        baseline_scenario:
+          $ref: '#/components/schemas/BaselineAnalysis'
+        legislation_analysis:
+          $ref: '#/components/schemas/LegislationAnalysis'
+        financial_analysis:
+          $ref: '#/components/schemas/FinancialAnalysis'
+        barrier_analysis:
+          $ref: '#/components/schemas/BarrierAnalysis'
+        metadata:
+          $ref: '#/components/schemas/AIResultMetadata'
+
+    BaselineAnalysis:
+      type: object
+      properties:
+        baseline_emissions_tco2e_per_year:
+          type: number
+        baseline_scenario_description:
+          type: string
+        calculation_methodology:
+          type: string
+
+    LegislationAnalysis:
+      type: object
+      properties:
+        applicable_laws:
+          type: array
+          items:
+            type: object
+            properties:
+              law_reference:
+                type: string
+              requirement:
+                type: string
+              compliance_status:
+                type: string
+        conflicts_identified:
+          type: array
+          items:
+            type: string
+
+    FinancialAnalysis:
+      type: object
+      properties:
+        irr_without_carbon:
+          type: number
+        irr_with_carbon:
+          type: number
+        financial_viability_without_carbon:
+          type: boolean
+        analysis_notes:
+          type: string
+
+    BarrierAnalysis:
+      type: object
+      properties:
+        identified_barriers:
+          type: array
+          items:
+            type: object
+            properties:
+              barrier_type:
+                type: string
+                enum: [financial, institutional, technical, social]
+              description:
+                type: string
+              severity:
+                type: string
+                enum: [high, medium, low]
+
+    # ===== Remote Sensing =====
+    RemoteSensingRequest:
+      type: object
+      required: [project_id, boundary_geojson]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        boundary_geojson:
+          type: object
+          description: GeoJSON Polygon of project boundary
+        analysis_types:
+          type: array
+          items:
+            type: string
+            enum: [forest_cover, biomass, agriculture, change_detection, anomaly_detection]
+        date_range:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date
+            end:
+              type: string
+              format: date
+        satellite_sources:
+          type: array
+          items:
+            type: string
+            enum: [landsat_8, landsat_9, sentinel_2, sentinel_1, modis]
+
+    RemoteSensingResponse:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        estimated_completion:
+          type: string
+          format: date-time
+
+    RemoteSensingStatus:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        progress_percent:
+          type: number
+        results:
+          $ref: '#/components/schemas/RemoteSensingResults'
+
+    RemoteSensingResults:
+      type: object
+      properties:
+        project_area_km2:
+          type: number
+        forest_cover_percent:
+          type: number
+        carbon_stock_tco2e:
+          type: number
+        biomass_density_mg_per_ha:
+          type: number
+        historical_readings:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoricalReading'
+        anomalies:
+          type: array
+          items:
+            $ref: '#/components/schemas/DetectedAnomaly'
+        metadata:
+          $ref: '#/components/schemas/AIResultMetadata'
+
+    HistoricalReading:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        forest_cover_percent:
+          type: number
+        carbon_stock_tco2e:
+          type: number
+        data_quality_score:
+          type: number
+
+    DetectedAnomaly:
+      type: object
+      properties:
+        anomaly_id:
+          type: string
+        type:
+          type: string
+          enum: [deforestation, burning, illegal_logging, encroachment]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        detected_date:
+          type: string
+          format: date
+        area_affected_ha:
+          type: number
+        coordinates:
+          type: array
+          items:
+            type: number
+        confidence:
+          type: number
+        satellite_image_url:
+          type: string
+
+    CarbonForecastResponse:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+          format: uuid
+        forecast_years:
+          type: integer
+        annual_predictions:
+          type: array
+          items:
+            type: object
+            properties:
+              year:
+                type: integer
+              predicted_carbon_stock:
+                type: number
+              confidence_interval:
+                type: object
+                properties:
+                  lower:
+                    type: number
+                  upper:
+                    type: number
+              risk_factors:
+                type: array
+                items:
+                  type: string
+
+    # ===== Governance =====
+    AIExplanation:
+      type: object
+      properties:
+        validation_id:
+          type: string
+          format: uuid
+        component:
+          type: string
+        explanation:
+          type: string
+        confidence_score:
+          type: number
+        evidence_references:
+          type: array
+          items:
+            type: string
+        model_decision_path:
+          type: string
+
+    OverrideRequest:
+      type: object
+      required: [reason, new_decision]
+      properties:
+        reason:
+          type: string
+          minLength: 20
+        new_decision:
+          type: string
+        supporting_evidence:
+          type: array
+          items:
+            type: string
+
+    OverrideResponse:
+      type: object
+      properties:
+        override_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        original_result:
+          type: object
+        overridden_by:
+          type: string
+        override_timestamp:
+          type: string
+          format: date-time
+
+    AuditLogResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              audit_id:
+                type: string
+                format: uuid
+              timestamp:
+                type: string
+                format: date-time
+              component:
+                type: string
+              project_id:
+                type: string
+                format: uuid
+              actor_id:
+                type: string
+                format: uuid
+              action:
+                type: string
+              result:
+                type: object

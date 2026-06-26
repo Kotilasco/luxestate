@@ -1,38 +1,33 @@
 from datetime import UTC, datetime, timedelta
 from hashlib import pbkdf2_hmac, sha256
 from secrets import token_hex
+from typing import Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select, delete, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.infrastructure.database.models import (
+    ApiKeyModel,
+    PasswordResetModel,
+    SessionModel,
+    UserModel,
+)
+from app.infrastructure.database.session import get_session
+from app.infrastructure.security.rbac import (
+    ROLE_PERMISSIONS,
+    AuthenticatedUser,
+    Permission,
+    check_permission,
+    get_authenticated_user,
+)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Identity and Access Management"])
 
-
-ROLE_PERMISSIONS = {
-    "Super Administrator": ["*"],
-    "ZiCMA Administrator": ["registry.admin", "article6.approve", "compliance.enforce"],
-    "Registry Officer": ["organizations.review", "projects.review", "credits.issue"],
-    "Registry Manager": ["registry.manage", "credits.manage", "reports.approve"],
-    "Project Developer": ["projects.create", "evidence.upload", "monitoring.submit"],
-    "Accredited Validator": ["validation.review", "validation.decide"],
-    "Accredited Verifier": ["verification.review", "verification.sign"],
-    "GIS Analyst": ["gis.review", "gis.lineage.record"],
-    "MRV Officer": ["mrv.review", "monitoring.inspect"],
-    "AI Review Officer": ["ai.review", "ai.override"],
-    "Compliance Officer": ["compliance.case.open", "ledger.freeze"],
-    "Legal Officer": ["appeals.review", "rules.adopt"],
-    "Marketplace Operator": ["marketplace.list", "settlement.record"],
-    "Finance Officer": ["invoices.issue", "payments.reconcile", "fees.configure"],
-    "Community Officer": ["consultation.record", "safeguards.review"],
-    "Buyer": ["portfolio.view", "credits.buy", "credits.retire"],
-    "Seller": ["portfolio.view", "credits.sell"],
-    "Auditor": ["audit.view", "reports.export"],
-    "Public User": ["public.registry.view", "certificate.verify"],
-    "Government Officer": ["registry.review", "organizations.review", "reports.view"],
-    "Administrator": ["users.manage", "roles.manage", "system.configure"],
-}
+ADMIN_EMAIL = "admin@zai-cts.gov.zw"
+ADMIN_PASSWORD_ENV = "ZAI_CTS_ADMIN_PASSWORD"
 
 
 class OrganizationRegistrationRequest(BaseModel):
@@ -125,176 +120,362 @@ def _new_signature(email: str) -> str:
     return f"SIG-ZAI-{sha256(email.encode()).hexdigest()[:24].upper()}"
 
 
-def _user_response(user: dict[str, object]) -> UserResponse:
-    role = str(user["role"])
-    organization = user.get("organization")
-    return UserResponse(
-        id=user["id"],  # type: ignore[arg-type]
-        full_name=str(user["full_name"]),
-        email=str(user["email"]),
-        role=role,
-        status=str(user["status"]),
-        email_verified=bool(user["email_verified"]),
-        mfa_enabled=bool(user["mfa_enabled"]),
-        organization=OrganizationResponse(**organization) if isinstance(organization, dict) else None,
-        permissions=ROLE_PERMISSIONS.get(role, []),
-        digital_signature=str(user["digital_signature"]),
+def _token_hash(token: str) -> str:
+    return sha256(token.encode()).hexdigest()
+
+
+def _organization_response(org_row) -> OrganizationResponse | None:
+    if org_row is None:
+        return None
+    return OrganizationResponse(
+        id=org_row.id,
+        name=org_row.legal_name,
+        organization_type=org_row.organization_type,
+        country=org_row.country_code,
+        registration_number=org_row.registration_number,
+        kyb_status=getattr(org_row, "kyb_status", "approved"),
+        approval_status=getattr(org_row, "approval_status", "approved"),
     )
 
 
-def _seed_admin() -> None:
-    if USERS:
+def _user_response(user: UserModel, org=None) -> UserResponse:
+    role = user.role
+    return UserResponse(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        role=role,
+        status=user.status,
+        email_verified=user.email_verified,
+        mfa_enabled=user.mfa_enabled,
+        organization=_organization_response(org),
+        permissions=ROLE_PERMISSIONS.get(role, []),
+        digital_signature=user.digital_signature or _new_signature(user.email),
+    )
+
+
+async def _get_user_by_email(db: AsyncSession, email: str) -> UserModel | None:
+    result = await db.execute(select(UserModel).where(UserModel.email == email.lower()))
+    return result.scalar_one_or_none()
+
+
+async def _get_user_by_id(db: AsyncSession, user_id: UUID) -> UserModel | None:
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    return result.scalar_one_or_none()
+
+
+import os
+_DEFAULT_ADMIN_PASSWORD = os.getenv(ADMIN_PASSWORD_ENV)
+
+
+async def seed_administrator(db: AsyncSession) -> None:
+    result = await db.execute(select(UserModel).limit(1))
+    if result.scalar_one_or_none() is not None:
+        return
+    raw_password = _DEFAULT_ADMIN_PASSWORD
+    if not raw_password:
         return
     salt = token_hex(16)
-    USERS["admin@zai-cts.gov.zw"] = {
-        "id": UUID("11111111-1111-4111-8111-111111111111"),
-        "full_name": "ZiCMA Registry Administrator",
-        "email": "admin@zai-cts.gov.zw",
-        "role": "Super Administrator",
-        "status": "approved",
-        "salt": salt,
-        "password_hash": _hash_password("Admin@12345", salt),
-        "email_verified": True,
-        "mfa_enabled": False,
-        "organization": {
-            "id": UUID("22222222-2222-4222-8222-222222222222"),
-            "name": "Zimbabwe Carbon Markets Authority",
-            "organization_type": "Government",
-            "country": "Zimbabwe",
-            "registration_number": "ZICMA-001",
-            "kyb_status": "approved",
-            "approval_status": "approved",
-        },
-        "digital_signature": _new_signature("admin@zai-cts.gov.zw"),
-        "created_at": datetime.now(tz=UTC),
-    }
-
-
-USERS: dict[str, dict[str, object]] = {}
-SESSIONS: dict[str, dict[str, object]] = {}
-RESET_TOKENS: dict[str, str] = {}
-API_KEYS: dict[UUID, list[ApiKeyResponse]] = {}
-_seed_admin()
+    admin_id = UUID("11111111-1111-4111-8111-111111111111")
+    org_id = UUID("22222222-2222-4222-8222-222222222222")
+    admin = UserModel(
+        id=admin_id,
+        full_name="ZiCMA Registry Administrator",
+        email=ADMIN_EMAIL,
+        password_hash=_hash_password(raw_password, salt),
+        salt=salt,
+        role="Super Administrator",
+        status="approved",
+        email_verified=True,
+        mfa_enabled=False,
+        organization_id=org_id,
+        digital_signature=_new_signature(ADMIN_EMAIL),
+    )
+    db.add(admin)
+    await db.commit()
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register_user(request: RegisterUserRequest) -> UserResponse:
-    email = request.email.lower()
-    if email in USERS:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists.")
+async def register_user(
+    request: RegisterUserRequest,
+    db: AsyncSession = Depends(get_session),
+) -> UserResponse:
+    existing = await _get_user_by_email(db, request.email)
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists.",
+        )
     if request.role not in ROLE_PERMISSIONS:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported role.")
-
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unsupported role.",
+        )
     salt = token_hex(16)
-    organization = None
-    if request.organization:
-        organization = {
-            "id": uuid4(),
-            "name": request.organization.name,
-            "organization_type": request.organization.organization_type,
-            "country": request.organization.country,
-            "registration_number": request.organization.registration_number,
-            "kyb_status": "pending",
-            "approval_status": "pending",
-        }
-    user = {
-        "id": uuid4(),
-        "full_name": request.full_name,
-        "email": email,
-        "role": request.role,
-        "status": "pending_approval",
-        "salt": salt,
-        "password_hash": _hash_password(request.password, salt),
-        "email_verified": False,
-        "mfa_enabled": False,
-        "organization": organization,
-        "digital_signature": _new_signature(email),
-        "created_at": datetime.now(tz=UTC),
-    }
-    USERS[email] = user
+    user = UserModel(
+        id=uuid4(),
+        full_name=request.full_name,
+        email=request.email.lower(),
+        password_hash=_hash_password(request.password, salt),
+        salt=salt,
+        role=request.role,
+        status="pending_approval",
+        email_verified=False,
+        mfa_enabled=False,
+        digital_signature=_new_signature(request.email.lower()),
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
     return _user_response(user)
 
 
 @router.post("/login", response_model=AuthSessionResponse)
-async def login(request: LoginRequest) -> AuthSessionResponse:
-    user = USERS.get(request.email.lower())
-    if user is None or user["password_hash"] != _hash_password(request.password, str(user["salt"])):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
-    if user["status"] != "approved":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Account is {user['status']}. Approval is required before login.")
-    if bool(user["mfa_enabled"]) and request.mfa_code != "123456":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Valid MFA code is required.")
-
+async def login(
+    request: LoginRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_session),
+) -> AuthSessionResponse:
+    user = await _get_user_by_email(db, request.email)
+    if user is None or user.password_hash != _hash_password(request.password, user.salt):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
+        )
+    if user.status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is {user.status}. Approval is required before login.",
+        )
+    if user.mfa_enabled:
+        if not request.mfa_code or len(request.mfa_code) != 6:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Valid MFA code is required.",
+            )
     token = token_hex(32)
     expires_at = datetime.now(tz=UTC) + timedelta(hours=8)
-    SESSIONS[token] = {"user_email": user["email"], "expires_at": expires_at, "created_at": datetime.now(tz=UTC)}
-    return AuthSessionResponse(access_token=token, expires_at=expires_at, user=_user_response(user))
+    session = SessionModel(
+        id=uuid4(),
+        token_hash=_token_hash(token),
+        user_id=user.id,
+        expires_at=expires_at,
+        ip_address=http_request.client.host if http_request.client else None,
+        device=http_request.headers.get("user-agent"),
+    )
+    db.add(session)
+    await db.commit()
+    org = None
+    if user.organization_id:
+        org_result = await db.execute(
+            text("SELECT * FROM identity.organizations WHERE id = :oid"),
+            {"oid": str(user.organization_id)},
+        )
+        org = org_result.mappings().one_or_none()
+    return AuthSessionResponse(
+        access_token=token,
+        expires_at=expires_at,
+        user=_user_response(user, org),
+    )
 
 
 @router.get("/me", response_model=UserResponse)
-async def current_user(authorization: str | None = Header(default=None, alias="Authorization")) -> UserResponse:
+async def current_user(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: AsyncSession = Depends(get_session),
+) -> UserResponse:
     token = (authorization or "").replace("Bearer ", "")
-    session = SESSIONS.get(token)
-    if session is None or session["expires_at"] < datetime.now(tz=UTC):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is not valid.")
-    return _user_response(USERS[str(session["user_email"])])
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+    result = await db.execute(
+        select(SessionModel).where(
+            SessionModel.token_hash == _token_hash(token),
+            SessionModel.expires_at > datetime.now(tz=UTC),
+        )
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session is not valid.",
+        )
+    user = await _get_user_by_id(db, session.user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found.",
+        )
+    org = None
+    if user.organization_id:
+        org_result = await db.execute(
+            text("SELECT * FROM identity.organizations WHERE id = :oid"),
+            {"oid": str(user.organization_id)},
+        )
+        org = org_result.mappings().one_or_none()
+    return _user_response(user, org)
 
 
 @router.post("/logout", response_model=MessageResponse)
-async def logout(authorization: str | None = Header(default=None, alias="Authorization")) -> MessageResponse:
+async def logout(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: AsyncSession = Depends(get_session),
+) -> MessageResponse:
     token = (authorization or "").replace("Bearer ", "")
-    SESSIONS.pop(token, None)
+    if token:
+        await db.execute(
+            delete(SessionModel).where(SessionModel.token_hash == _token_hash(token))
+        )
+        await db.commit()
     return MessageResponse(message="Logged out.")
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(request: PasswordResetRequest) -> MessageResponse:
-    if request.email.lower() in USERS:
-        RESET_TOKENS[request.email.lower()] = token_hex(20)
-    return MessageResponse(message="If the account exists, a password reset token has been generated.")
+async def forgot_password(
+    request: PasswordResetRequest,
+    db: AsyncSession = Depends(get_session),
+) -> MessageResponse:
+    user = await _get_user_by_email(db, request.email)
+    if user is not None:
+        token = token_hex(20)
+        reset = PasswordResetModel(
+            id=uuid4(),
+            user_id=user.id,
+            token_hash=_token_hash(token),
+            expires_at=datetime.now(tz=UTC) + timedelta(hours=24),
+        )
+        db.add(reset)
+        await db.commit()
+    return MessageResponse(
+        message="If the account exists, a password reset token has been generated."
+    )
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(request: PasswordResetConfirmRequest) -> MessageResponse:
-    email = next((email for email, token in RESET_TOKENS.items() if token == request.token), None)
-    if email is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password reset token.")
+async def reset_password(
+    request: PasswordResetConfirmRequest,
+    db: AsyncSession = Depends(get_session),
+) -> MessageResponse:
+    result = await db.execute(
+        select(PasswordResetModel).where(
+            PasswordResetModel.token_hash == _token_hash(request.token),
+            PasswordResetModel.expires_at > datetime.now(tz=UTC),
+            PasswordResetModel.used_at.is_(None),
+        )
+    )
+    reset = result.scalar_one_or_none()
+    if reset is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid password reset token.",
+        )
+    user = await _get_user_by_id(db, reset.user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not found.",
+        )
     salt = token_hex(16)
-    USERS[email]["salt"] = salt
-    USERS[email]["password_hash"] = _hash_password(request.new_password, salt)
-    RESET_TOKENS.pop(email, None)
+    user.salt = salt
+    user.password_hash = _hash_password(request.new_password, salt)
+    reset.used_at = datetime.now(tz=UTC)
+    await db.commit()
     return MessageResponse(message="Password reset complete.")
 
 
-@router.post("/users/{user_id}/approval", response_model=UserResponse)
-async def approve_user(user_id: UUID, request: UserApprovalRequest) -> UserResponse:
-    user = next((candidate for candidate in USERS.values() if candidate["id"] == user_id), None)
+@router.post(
+    "/users/{user_id}/approval",
+    response_model=UserResponse,
+    responses={403: {"description": "Permission denied"}},
+)
+async def approve_user(
+    user_id: UUID,
+    request: UserApprovalRequest,
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_session),
+) -> UserResponse:
+    check_permission(current_user, Permission.USERS_APPROVE)
+    user = await _get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User was not found.")
-    user["status"] = request.status
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User was not found.",
+        )
+    user.status = request.status
     if request.status == "approved":
-        user["email_verified"] = True
-        organization = user.get("organization")
-        if isinstance(organization, dict):
-            organization["kyb_status"] = "approved"
-            organization["approval_status"] = "approved"
-    return _user_response(user)
+        user.email_verified = True
+        if user.organization_id:
+            await db.execute(
+                text(
+                    "UPDATE identity.organizations SET status = 'active' WHERE id = :oid"
+                ),
+                {"oid": str(user.organization_id)},
+            )
+    await db.commit()
+    await db.refresh(user)
+    org = None
+    if user.organization_id:
+        org_result = await db.execute(
+            text("SELECT * FROM identity.organizations WHERE id = :oid"),
+            {"oid": str(user.organization_id)},
+        )
+        org = org_result.mappings().one_or_none()
+    return _user_response(user, org)
 
 
-@router.get("/users", response_model=list[UserResponse])
-async def list_users() -> list[UserResponse]:
-    return [_user_response(user) for user in USERS.values()]
+@router.get("/users", response_model=list[UserResponse], responses={403: {"description": "Permission denied"}})
+async def list_users(
+    current_user: AuthenticatedUser = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_session),
+) -> list[UserResponse]:
+    if not current_user.has_any_permission(
+        [Permission.USERS_MANAGE, Permission.USERS_APPROVE, Permission.AUDIT_VIEW]
+    ):
+        user = await _get_user_by_id(db, current_user.actor_id)
+        if user:
+            return [_user_response(user)]
+        return []
+    result = await db.execute(select(UserModel))
+    users = result.scalars().all()
+    org_ids = [u.organization_id for u in users if u.organization_id]
+    org_map = {}
+    if org_ids:
+        org_result = await db.execute(
+            text(
+                "SELECT * FROM identity.organizations WHERE id = ANY(:oids)"
+            ),
+            {"oids": [str(oid) for oid in org_ids]},
+        )
+        for row in org_result.mappings().all():
+            org_map[row["id"]] = row
+    return [_user_response(u, org_map.get(u.organization_id)) for u in users]
 
 
 @router.post("/api-keys", response_model=ApiKeyResponse, status_code=status.HTTP_201_CREATED)
-async def create_api_key(request: ApiKeyRequest, authorization: str | None = Header(default=None, alias="Authorization")) -> ApiKeyResponse:
-    user = await current_user(authorization)
-    key = ApiKeyResponse(
+async def create_api_key(
+    request: ApiKeyRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: AsyncSession = Depends(get_session),
+) -> ApiKeyResponse:
+    me = await current_user(authorization, db)
+    key_raw = f"zai_{token_hex(16)}"
+    key = ApiKeyModel(
         id=uuid4(),
+        user_id=me.id,
         label=request.label,
+        key_hash=_token_hash(key_raw),
         key_prefix=f"zai_{token_hex(4)}",
-        scopes=request.scopes or user.permissions,
-        created_at=datetime.now(tz=UTC),
+        scopes={"scopes": request.scopes or me.permissions},
     )
-    API_KEYS.setdefault(user.id, []).append(key)
-    return key
+    db.add(key)
+    await db.commit()
+    await db.refresh(key)
+    return ApiKeyResponse(
+        id=key.id,
+        label=key.label,
+        key_prefix=key.key_prefix,
+        scopes=key.scopes.get("scopes", []),
+        created_at=key.created_at,
+    )

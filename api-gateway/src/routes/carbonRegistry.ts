@@ -149,4 +149,24 @@ export async function carbonRegistryRoutes(app: FastifyInstance): Promise<void> 
     reply.headers(upstream.headers);
     return upstream.body.json();
   });
+
+  app.all("/anchors/*", async (incoming, reply) => {
+    const params = incoming.params as { "*": string };
+    const url = new URL(`/anchors/${params["*"]}`, config.CARBON_REGISTRY_URL);
+    if (incoming.query && Object.keys(incoming.query as object).length > 0) {
+      for (const [key, value] of Object.entries(incoming.query as Record<string, string>)) {
+        url.searchParams.set(key, value);
+      }
+    }
+
+    const upstream = await request(url, {
+      method: incoming.method,
+      headers: upstreamHeaders(incoming.headers),
+      body: upstreamBody(incoming.method, firstHeader(incoming.headers["content-type"]), incoming.body)
+    });
+
+    reply.statusCode = upstream.statusCode;
+    reply.headers(upstream.headers);
+    return upstream.body.json();
+  });
 }

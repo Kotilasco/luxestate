@@ -16,6 +16,23 @@ services:
       timeout: 5s
       retries: 10
 
+  database-migrations:
+    image: postgres:17-alpine
+    environment:
+      PGPASSWORD: zai_cts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../database/migrations:/migrations:ro
+    command:
+      - sh
+      - -c
+      - >-
+        psql -h postgres -U zai_cts -d zai_cts -v ON_ERROR_STOP=1
+        -f /migrations/0002_enterprise_domains.sql
+    restart: "no"
+
   redis:
     image: redis:7-alpine
     ports:
@@ -39,6 +56,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      database-migrations:
+        condition: service_completed_successfully
       ai-verification-service:
         condition: service_started
     ports:
@@ -48,14 +67,87 @@ services:
     build:
       context: ../../ai/verification-service
 
+  ai-validation-service:
+    build:
+      context: ../../backend/services/ai-validation-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zai_cts:zai_cts@postgres:5432/zai_cts
+      REDIS_URL: redis://redis:6379/1
+      CARBON_REGISTRY_URL: http://carbon-registry-service:8101
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      database-migrations:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    ports:
+      - "8103:8103"
+
+  gis-service:
+    build:
+      context: ../../backend/services/gis-service
+    environment:
+      POSTGIS_HOST: postgres
+      POSTGIS_PORT: 5432
+      POSTGIS_DB: zai_cts
+      POSTGIS_USER: zai_cts
+      POSTGIS_PASSWORD: zai_cts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      database-migrations:
+        condition: service_completed_successfully
+    ports:
+      - "8104:8104"
+
+  marketplace-service:
+    build:
+      context: ../../backend/services/marketplace-service
+    environment:
+      REDIS_URL: redis://redis:6379/2
+      DATABASE_URL: postgresql+asyncpg://zai_cts:zai_cts@postgres:5432/zai_cts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      database-migrations:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    ports:
+      - "8106:8106"
+
+  compliance-service:
+    build:
+      context: ../../backend/services/compliance-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zai_cts:zai_cts@postgres:5432/zai_cts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      database-migrations:
+        condition: service_completed_successfully
+    ports:
+      - "8107:8107"
+
   api-gateway:
     build:
       context: ../../api-gateway
     environment:
       PORT: 8080
       CARBON_REGISTRY_URL: http://carbon-registry-service:8101
+      AI_VALIDATION_URL: http://ai-validation-service:8103
+      GIS_SERVICE_URL: http://gis-service:8104
+      MARKETPLACE_URL: http://marketplace-service:8106
+      COMPLIANCE_URL: http://compliance-service:8107
     depends_on:
       - carbon-registry-service
+      - ai-validation-service
+      - gis-service
+      - marketplace-service
+      - compliance-service
     ports:
       - "8082:8080"
 

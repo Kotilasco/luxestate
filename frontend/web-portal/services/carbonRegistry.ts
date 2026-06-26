@@ -425,7 +425,7 @@ export async function getCurrentUser(session: AuthSession): Promise<AuthUser> {
 }
 
 export async function listUsers(): Promise<AuthUser[]> {
-  const response = await fetch(`${apiBaseUrl}/api/v1/auth/users`, { cache: "no-store" });
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/users`, { headers: actorHeaders(), cache: "no-store" });
   if (!response.ok) {
     throw new Error(`User list failed with ${response.status}`);
   }
@@ -977,18 +977,112 @@ function actorHeaders(): Record<string, string> {
   };
 }
 
+export type AnchorBatch = {
+  id: string;
+  batch_name: string;
+  entry_count: number;
+  merkle_root: string;
+  anchor_hash: string;
+  fabric_tx_id: string;
+  fabric_block_number: number;
+  previous_anchor_id: string | null;
+  anchored_at: string;
+  status: string;
+};
+
+export type AnchorResult = {
+  status: string;
+  anchor_id: string;
+  batch_name: string;
+  merkle_root: string;
+  anchor_hash: string;
+  entry_count: number;
+  fabric_tx_id: string;
+  fabric_block_number: number;
+  previous_anchor_id: string | null;
+};
+
+export type AnchorVerification = {
+  status: "verified" | "tampered";
+  anchor_id: string;
+  stored_root: string;
+  recomputed_root: string;
+  entry_count: number;
+  fabric_tx_id: string;
+  is_valid: boolean;
+};
+
+export async function anchorUnanchoredBatch(batchName?: string): Promise<AnchorResult> {
+  const url = new URL(`${apiBaseUrl}/anchors/batch`);
+  if (batchName) url.searchParams.set("batch_name", batchName);
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: actorHeaders()
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Anchor batch failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function verifyAnchor(anchorId: string): Promise<AnchorVerification> {
+  const response = await fetch(`${apiBaseUrl}/anchors/${anchorId}/verify`, {
+    headers: actorIdentityHeaders()
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Verify anchor failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function reconcileAnchorChain(): Promise<Array<AnchorVerification & { chain_continuous?: boolean }>> {
+  const response = await fetch(`${apiBaseUrl}/anchors/reconcile`, {
+    headers: actorIdentityHeaders()
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Reconcile chain failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getUnanchoredCount(): Promise<{ unanchored_count: number }> {
+  const response = await fetch(`${apiBaseUrl}/anchors/status/unanchored-count`, {
+    headers: actorIdentityHeaders()
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Unanchored count failed with ${response.status}`);
+  }
+  return response.json();
+}
+
 function actorIdentityHeaders(): Record<string, string> {
-  if (clientAuthSession) {
+  // Use module-level session first, then try localStorage (handles hot-reload resets)
+  const session = clientAuthSession ?? (() => {
+    try {
+      const stored = localStorage.getItem("zai-cts-session");
+      return stored ? JSON.parse(stored) as AuthSession : null;
+    } catch {
+      return null;
+    }
+  })();
+  
+  if (session) {
+    // SECURITY FIX: Role is NO LONGER sent from frontend
+    // The backend now validates the session token and looks up the user's role
+    // This prevents privilege escalation attacks where users could spoof their role
     return {
-      "x-actor-id": clientAuthSession.user.id,
-      "x-actor-role": clientAuthSession.user.role,
+      "x-actor-id": session.user.id,
+      // "x-actor-role" is intentionally NOT sent - backend derives it from session
       "x-correlation-id": crypto.randomUUID(),
-      authorization: `Bearer ${clientAuthSession.access_token}`
+      authorization: `Bearer ${session.access_token}`
     };
   }
+  // No default fallback - unauthenticated requests will be rejected by backend
   return {
-    "x-actor-id": "11111111-1111-4111-8111-111111111111",
-    "x-actor-role": "regulator.approver",
     "x-correlation-id": crypto.randomUUID()
   };
 }

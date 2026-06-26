@@ -1,12 +1,39 @@
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.infrastructure.security.current_user import SESSIONS
 from app.main import create_app
 
 
 @pytest.mark.asyncio
 async def test_auth_registration_approval_login_and_logout() -> None:
     app = create_app()
+
+    # Create admin session for approval
+    from app.api.v1.auth import USERS
+    admin_token = "test_admin_token"
+    USERS["admin@test.com"] = {
+        "id": uuid4(),
+        "full_name": "Test Admin",
+        "email": "admin@test.com",
+        "role": "Super Administrator",
+        "status": "approved",
+        "salt": "test_salt",
+        "password_hash": "test_hash",
+        "email_verified": True,
+        "mfa_enabled": False,
+        "organization": None,
+        "digital_signature": "SIG-ADMIN",
+        "created_at": datetime.now(tz=UTC),
+    }
+    SESSIONS[admin_token] = {
+        "user_email": "admin@test.com",
+        "expires_at": datetime.now(tz=UTC) + timedelta(hours=8),
+        "created_at": datetime.now(tz=UTC),
+    }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         register_response = await client.post(
@@ -35,8 +62,10 @@ async def test_auth_registration_approval_login_and_logout() -> None:
         )
         assert blocked_login_response.status_code == 403
 
+        # Now approval requires authentication
         approval_response = await client.post(
             f"/api/v1/auth/users/{user['id']}/approval",
+            headers={"Authorization": f"Bearer {admin_token}"},
             json={"status": "approved", "reason": "Integration test approval."},
         )
         assert approval_response.status_code == 200

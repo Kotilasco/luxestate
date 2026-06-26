@@ -1,367 +1,675 @@
-# MASTER_SPECIFICATION.md
+You are the Chief Enterprise Architect reviewing the Zimbabwe AI-Enhanced Carbon Trading System (ZAI-CTS).
 
-# Zimbabwe AI-Enhanced Carbon Trading Ecosystem (ZAI-CTS)
-## Master Production Specification v1.0
+Perform a complete architectural refactor of the application to align it with how a national carbon registry operates under Zimbabwe SI 48 of 2025 and the Paris Agreement Article 6.
 
-> This document is the constitutional specification for the repository. Every generated file, service, database object, API, UI component, AI workflow, blockchain contract, infrastructure resource, and test MUST conform to this specification.
+Do NOT simply improve the UI. Review the entire business workflow, navigation, database, permissions, services, and user experience.
 
----
+The following issues MUST be addressed.
 
-# 1. Vision
+=====================================================================
+1. IMPLEMENT A COMPLETE USER MANAGEMENT MODULE
+=====================================================================
 
-Build a production-grade national digital platform implementing Zimbabwe's carbon market under SI 48 of 2025 and the Paris Agreement Article 6.
+The system currently assumes users already exist.
 
-The platform is NOT a prototype.
-The platform is NOT a demonstration.
-The platform SHALL be implemented as enterprise software suitable for national critical infrastructure.
+Implement a full Identity and Access Management (IAM) module.
 
----
+Features:
 
-# 2. Core Principles
+• User Registration
+• Organization Registration
+• Project Developer Registration
+• Verifier Registration
+• Government Officer Registration
+• Community Representative Registration
+• Buyer Registration
+• Seller Registration
+• Administrator Registration
 
-- Clean Architecture
-- Domain Driven Design
-- SOLID
-- Twelve-Factor App
-- Zero Trust Security
-- API First
-- AI Native
-- Cloud Ready
-- On-Prem Ready
-- Event Driven
-- Immutable Audit
-- Explainable AI
-- GIS First
-- Mobile First for field operations
+Support:
 
----
+• Login
+• Logout
+• Forgot Password
+• Password Reset
+• MFA
+• Email Verification
+• Account Approval
+• Account Suspension
+• User Invitations
+• User Profile
+• Digital Signatures
+• API Keys
+• Session Management
 
-# 3. Technology Stack
+Implement Role Based Access Control (RBAC).
 
-Backend
-- Python FastAPI
-- Node.js API Gateway
-- PostgreSQL
-- Redis
-- RabbitMQ
+Roles should include:
+
+• Super Administrator
+• ZiCMA Administrator
+• Registry Officer
+• Registry Manager
+• Project Developer
+• Accredited Validator
+• Accredited Verifier
+• GIS Analyst
+• MRV Officer
+• AI Review Officer
+• Compliance Officer
+• Legal Officer
+• Marketplace Operator
+• Finance Officer
+• Community Officer
+• Buyer
+• Seller
+• Auditor
+• Public User
+
+Each role must have configurable permissions.
+
+Implement permission management instead of hardcoding access.
+
+=====================================================================
+2. ORGANIZATION MANAGEMENT
+=====================================================================
+
+Before projects exist there must be organizations.
+
+Implement:
+
+• Organization Registration
+• KYC/KYB
+• Organization Approval
+• Registry Account Creation
+• Organization Dashboard
+• Users within Organization
+• Multiple Administrators
+• Organization Documents
+• Accreditation Status
+
+Examples:
+
+Government
+
+NGO
+
+Private Company
+
+Community Trust
+
+Forestry Company
+
+Carbon Developer
+
+International Buyer
+
+Verification Company
+
+=====================================================================
+3. RESTRUCTURE THE ENTIRE PLATFORM INTO OPERATIONAL DOMAINS
+=====================================================================
+
+Replace the current tab structure.
+
+Implement major modules:
+
+A. Dashboard
+
+B. Identity & User Management
+
+C. Organizations
+
+D. Carbon Registry
+
+E. Project Lifecycle
+
+F. Validation
+
+G. Monitoring
+
+H. Verification
+
+I. Credit Registry
+
+J. Marketplace
+
+K. Article 6 Operations
+
+L. GIS Intelligence
+
+M. AI Intelligence
+
+N. MRV
+
+O. Compliance
+
+P. Appeals
+
+Q. Reporting
+
+R. Administration
+
+=====================================================================
+4. CORRECT THE PROJECT LIFECYCLE
+=====================================================================
+
+Implement this workflow exactly.
+
+Organization Registration
+
+↓
+
+Organization Approval
+
+↓
+
+Registry Account Creation
+
+↓
+
+Project Registration
+
+↓
+
+Project Validation
+
+↓
+
+Project Approval
+
+↓
+
+Project Implementation
+
+↓
+
+Monitoring Period
+
+↓
+
+Monitoring Report Submission
+
+↓
+
+Verification Case
+
+↓
+
+Evidence Package Upload
+
+↓
+
+Automatic Validation
+
+↓
+
+AI Assessment
+
+↓
+
+GIS Review
+
+↓
+
+MRV Review
+
+↓
+
+Verifier Decision
+
+↓
+
+ZiCMA Review
+
+↓
+
+Credit Issuance
+
+↓
+
+Credit Registry
+
+↓
+
+Marketplace Listing
+
+↓
+
+Trading
+
+↓
+
+Settlement
+
+↓
+
+Ownership Transfer
+
+↓
+
+Retirement
+
+↓
+
+Article 6 Authorization (if applicable)
+
+↓
+
+Corresponding Adjustment
+
+↓
+
+National Reporting
+
+↓
+
+Long-Term Monitoring
+
+=====================================================================
+5. IMPLEMENT PROJECT VALIDATION
+=====================================================================
+
+Validation is NOT Verification.
+
+Create a separate Validation module.
+
+Validation includes:
+
+• Methodology review
+
+• Additionality assessment
+
+• Financial feasibility
+
+• Environmental safeguards
+
+• Social safeguards
+
+• Stakeholder consultation
+
+• Land ownership validation
+
+• Project design review
+
+• Validation report
+
+• Validator approval
+
+Only validated projects may proceed to implementation.
+
+=====================================================================
+6. IMPLEMENT MONITORING
+=====================================================================
+
+Projects require monitoring periods.
+
+Implement:
+
+Monitoring Schedule
+
+Monitoring Reports
+
+Field Inspections
+
+IoT Data
+
+Drone Data
+
+Satellite Monitoring
+
+Forest Change Detection
+
+Carbon Measurements
+
+Monitoring History
+
+=====================================================================
+7. REDESIGN VERIFICATION
+=====================================================================
+
+Verification should become a Case Management system.
+
+Features:
+
+Verification Dashboard
+
+Evidence Package
+
+Automatic Validation
+
+AI Review
+
+GIS Review
+
+MRV Review
+
+Verifier Review
+
+ZiCMA Review
+
+Audit Timeline
+
+Digital Signatures
+
+Evidence Versioning
+
+Evidence Hashing
+
+Workflow Status
+
+=====================================================================
+8. IMPLEMENT CREDIT REGISTRY
+=====================================================================
+
+Separate Project Registry from Credit Registry.
+
+Credit Registry stores:
+
+Credit Batch
+
+Serial Numbers
+
+Vintage
+
+Methodology
+
+Owner
+
+Status
+
+Transfer History
+
+Retirement
+
+Blockchain Reference
+
+=====================================================================
+9. REDESIGN MARKETPLACE
+=====================================================================
+
+Marketplace should include:
+
+Registry Wallet
+
+Portfolio
+
+Listings
+
+Spot Market
+
+OTC Market
+
+Auctions
+
+Settlement
+
+Invoices
+
+Payments
+
+Fees
+
+Transaction History
+
+Market Analytics
+
+=====================================================================
+10. ARTICLE 6
+=====================================================================
+
+Move Article 6 into Credit Operations.
+
+Support:
+
+Authorization
+
+Corresponding Adjustments
+
+ITMOs
+
+Export Approval
+
+Import Approval
+
+National Accounting
+
+UN Reporting
+
+=====================================================================
+11. IMPLEMENT APPEALS
+=====================================================================
+
+Every regulatory decision must be appealable.
+
+Implement:
+
+Appeal Submission
+
+Appeal Review
+
+Independent Panel
+
+Decision
+
+Final Resolution
+
+Audit Trail
+
+=====================================================================
+12. IMPLEMENT REVERSAL MANAGEMENT
+=====================================================================
+
+Support:
+
+Forest Fires
+
+Illegal Logging
+
+Flood Damage
+
+Carbon Reversal
+
+Buffer Pool
+
+Replacement Credits
+
+Registry Corrections
+
+=====================================================================
+13. IMPLEMENT FINANCE
+=====================================================================
+
+Add financial operations.
+
+Invoices
+
+Receipts
+
+Registry Fees
+
+Marketplace Fees
+
+Taxes
+
+Payment Status
+
+Refunds
+
+Financial Reports
+
+=====================================================================
+14. GIS
+=====================================================================
+
+Replace text-based GIS inputs.
+
+Implement interactive maps.
+
+Support:
+
+Boundary Drawing
+
+GeoJSON Upload
+
+Shapefile Upload
+
+Satellite Layers
+
+Fire Layers
+
+Forest Cover
+
+Communities
+
+Roads
+
+Water
+
+Carbon Density
+
+Historical Comparison
+
+=====================================================================
+15. AI
+=====================================================================
+
+AI must be decision support.
+
+Implement:
+
+PDD Assistant
+
+Fraud Detection
+
+Leakage Detection
+
+Additionality Assessment
+
+Document Analysis
+
+Satellite Analysis
+
+Risk Assessment
+
+Price Forecasting
+
+Executive Copilot
+
+Every AI recommendation must include:
+
+Confidence
+
+Explanation
+
+Evidence
+
+Human Override
+
+=====================================================================
+16. DASHBOARDS
+=====================================================================
+
+Build enterprise dashboards.
+
+Executive Dashboard
+
+Registry Dashboard
+
+Verifier Dashboard
+
+Marketplace Dashboard
+
+Compliance Dashboard
+
+GIS Dashboard
+
+AI Dashboard
+
+National Climate Dashboard
+
+Community Dashboard
+
+=====================================================================
+17. AUDIT
+=====================================================================
+
+Every action must generate immutable audit records.
+
+Store:
+
+Timestamp
+
+User
+
+Role
+
+Organization
+
+Old Value
+
+New Value
+
+Digital Signature
+
+IP Address
+
+Device
+
+Workflow Step
+
+=====================================================================
+18. REVIEW THE ENTIRE CODEBASE
+=====================================================================
+
+Review every module.
+
+Identify architectural issues.
+
+Refactor where necessary.
+
+Ensure:
+
+Clean Architecture
+
+DDD
+
+SOLID
+
+Repository Pattern
+
+CQRS where appropriate
+
+Production-ready code
+
+=====================================================================
+19. DELIVERABLES
+=====================================================================
+
+Update:
+
+Database schema
+
+Backend services
 
 Frontend
-- Next.js
-- React
-- TypeScript
-- Tailwind CSS
-- Material UI
 
-Mobile
-- Flutter
+Navigation
 
-Blockchain
-- Hyperledger Fabric (preferred)
-- Hedera (optional)
+Permissions
 
-AI
-- OpenAI GPT-5.5
-- LangChain
-- Gemini
-- OCR
-- Computer Vision
-- ML Forecasting
+API documentation
 
-Infrastructure
-- Docker
-- Kubernetes
-- GitHub Actions
-- Terraform
-- Prometheus
-- Grafana
+Entity relationships
 
----
+Workflows
 
-# 4. Major Domains
+UI
 
-1. Identity & Access
-2. Carbon Registry
-3. Project Lifecycle
-4. Marketplace
-5. Payments & Settlement
-6. MRV
-7. GIS
-8. AI Services
-9. Community Revenue
-10. Regulatory Portal
-11. Reporting & BI
-12. Administration
+Documentation
 
----
+Migration scripts
 
-# 5. Architecture Rules
+Test cases
 
-Every module MUST contain:
-
-- Folder structure
-- README
-- OpenAPI documentation
-- Unit tests
-- Integration tests
-- Validation
-- Logging
-- Metrics
-- Health endpoints
-- Dockerfile
-
-Never generate placeholders, TODOs, fake APIs or mock production logic.
-
----
-
-# 6. Coding Standards
-
-- Python typing mandatory
-- Async FastAPI
-- Dependency Injection
-- Repository Pattern
-- CQRS where beneficial
-- Service Layer
-- DTO separation
-- Structured logging
-- Global exception handling
-
----
-
-# 7. Database Standards
-
-Use PostgreSQL.
-
-Every table requires:
-
-- UUID PK
-- created_at
-- updated_at
-- created_by
-- updated_by
-- audit trail
-- soft delete where appropriate
-
-Use migrations only.
-
-No destructive schema changes.
-
----
-
-# 8. Security
-
-- OAuth2
-- OpenID Connect
-- JWT
-- RBAC
-- ABAC
-- MFA
-- TLS
-- AES256
-- Immutable audit logs
-- Secrets manager
-- API rate limiting
-- SIEM integration
-
----
-
-# 9. AI Governance
-
-Every AI service shall provide:
-
-- Confidence score
-- Explainability
-- Prompt version
-- Model version
-- Human override
-- Audit trail
-- Bias monitoring
-- Drift monitoring
-
-AI Modules:
-- PDD Copilot
-- Legal Copilot
-- Additionality Engine
-- Leakage Detection
-- Fraud Detection
-- Price Forecasting
-- Satellite Intelligence
-- Executive Assistant
-
----
-
-# 10. Blockchain
-
-Implement smart contracts for:
-
-- Project registration
-- Credit issuance
-- Serialization
-- Authorization
-- Transfer
-- Retirement
-- Corresponding adjustment
-- Audit history
-
-Blockchain SHALL never replace relational databases.
-
----
-
-# 11. GIS
-
-Interactive Zimbabwe map.
-
-Layers:
-
-- Districts
-- Projects
-- Forest cover
-- Fire alerts
-- Carbon density
-- Satellite imagery
-- Communities
-- IoT sensors
-- Rainfall
-
----
-
-# 12. Marketplace
-
-Support:
-
-- Spot trading
-- OTC
-- Auctions
-- Wallets
-- Escrow
-- Settlement
-- Portfolio
-- Certificates
-- Retirement
-
----
-
-# 13. MRV
-
-Support:
-
-- IoT ingestion
-- Drone uploads
-- Satellite imagery
-- Field inspections
-- Offline mobile
-- Photo verification
-- Geotagging
-
----
-
-# 14. Community
-
-Support:
-
-- Revenue sharing
-- Trust funds
-- RDC dashboards
-- School projects
-- Clinics
-- Water projects
-- Transparency portal
-
----
-
-# 15. UI Standards
-
-Target quality comparable to:
-
-- Azure Portal
-- SAP Fiori
-- ArcGIS
-- Palantir Foundry
-
-Requirements:
-
-- Dark mode
-- Light mode
-- Responsive
-- Accessibility
-- Live dashboards
-- Interactive maps
-
----
-
-# 16. DevSecOps
-
-Mandatory:
-
-- Docker
-- Kubernetes
-- GitHub Actions
-- Terraform
-- Helm
-- Prometheus
-- Grafana
-- Disaster recovery
-- Backup strategy
-
----
-
-# 17. Quality Gates
-
-Code is complete only if:
-
-- Builds successfully
-- Tests pass
-- Lint passes
-- Security scan passes
-- Documentation complete
-- APIs documented
-- Monitoring enabled
-
----
-
-# 18. AI Agent Rules
-
-When generating code:
-
-1. Produce production-ready code.
-2. Never simplify architecture.
-3. Never omit tests.
-4. Always explain design decisions.
-5. Always update documentation.
-6. Maintain backward compatibility.
-7. Follow this specification before any prompt.
-8. If a request conflicts with this specification, explain the conflict and propose a compliant alternative.
-
----
-
-# 19. Implementation Phases
-
-Phase 1: Architecture
-Phase 2: Database
-Phase 3: Backend
-Phase 4: Blockchain
-Phase 5: AI
-Phase 6: Frontend
-Phase 7: GIS
-Phase 8: Marketplace
-Phase 9: MRV
-Phase 10: Community
-Phase 11: Security
-Phase 12: DevSecOps
-Phase 13: Enterprise Review
-
----
-
-# 20. Definition of Done
-
-The platform is complete only when it is:
-
-- Production deployable
-- Secure
-- Auditable
-- Scalable
-- Explainable
-- Maintainable
-- Fully documented
-- Fully tested
-- Compliant with Zimbabwean regulations
-- Ready for enterprise operation
+The final result must resemble an enterprise-grade national carbon registry comparable to Verra, Gold Standard, Markit Environmental Registry, the UK Emissions Registry, and the Australian National Registry while incorporating Zimbabwe-specific regulatory requirements and modern AI, GIS, and blockchain capabilities.

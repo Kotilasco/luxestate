@@ -7,8 +7,14 @@ CREATE SCHEMA IF NOT EXISTS monitoring;
 CREATE SCHEMA IF NOT EXISTS finance;
 CREATE SCHEMA IF NOT EXISTS reversals;
 
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS device VARCHAR(255) NULL;
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS workflow_step VARCHAR(160) NULL;
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS digital_signature VARCHAR(255) NULL;
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS old_value JSONB NULL;
+ALTER TABLE audit.audit_events ADD COLUMN IF NOT EXISTS new_value JSONB NULL;
+
 CREATE TABLE IF NOT EXISTS iam.roles (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(120) NOT NULL UNIQUE,
     category VARCHAR(80) NOT NULL,
     permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -17,7 +23,7 @@ CREATE TABLE IF NOT EXISTS iam.roles (
 );
 
 CREATE TABLE IF NOT EXISTS iam.users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     full_name VARCHAR(180) NOT NULL,
@@ -32,7 +38,7 @@ CREATE TABLE IF NOT EXISTS iam.users (
 );
 
 CREATE TABLE IF NOT EXISTS iam.api_keys (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES iam.users(id),
     key_fingerprint VARCHAR(160) NOT NULL UNIQUE,
     scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -42,7 +48,7 @@ CREATE TABLE IF NOT EXISTS iam.api_keys (
 );
 
 CREATE TABLE IF NOT EXISTS iam.sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES iam.users(id),
     ip_address VARCHAR(80) NULL,
     device_fingerprint VARCHAR(180) NULL,
@@ -51,7 +57,7 @@ CREATE TABLE IF NOT EXISTS iam.sessions (
 );
 
 CREATE TABLE IF NOT EXISTS organizations.organizations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(220) NOT NULL,
     organization_type VARCHAR(80) NOT NULL,
     kyb_status VARCHAR(60) NOT NULL DEFAULT 'pending',
@@ -62,7 +68,7 @@ CREATE TABLE IF NOT EXISTS organizations.organizations (
 );
 
 CREATE TABLE IF NOT EXISTS organizations.documents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations.organizations(id),
     document_type VARCHAR(120) NOT NULL,
     file_name VARCHAR(255) NOT NULL,
@@ -72,7 +78,7 @@ CREATE TABLE IF NOT EXISTS organizations.documents (
 );
 
 CREATE TABLE IF NOT EXISTS validation.validation_cases (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     project_id UUID NOT NULL,
     validator_user_id UUID NULL,
     status VARCHAR(60) NOT NULL DEFAULT 'open',
@@ -86,7 +92,7 @@ CREATE TABLE IF NOT EXISTS validation.validation_cases (
 );
 
 CREATE TABLE IF NOT EXISTS monitoring.monitoring_periods (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     project_id UUID NOT NULL,
     period_start DATE NOT NULL,
     period_end DATE NOT NULL,
@@ -96,7 +102,7 @@ CREATE TABLE IF NOT EXISTS monitoring.monitoring_periods (
 );
 
 CREATE TABLE IF NOT EXISTS monitoring.monitoring_reports (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     monitoring_period_id UUID NOT NULL REFERENCES monitoring.monitoring_periods(id),
     report_type VARCHAR(80) NOT NULL,
     data_sources JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -106,7 +112,7 @@ CREATE TABLE IF NOT EXISTS monitoring.monitoring_reports (
 );
 
 CREATE TABLE IF NOT EXISTS finance.invoices (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NULL,
     invoice_number VARCHAR(80) NOT NULL UNIQUE,
     fee_type VARCHAR(80) NOT NULL,
@@ -117,7 +123,7 @@ CREATE TABLE IF NOT EXISTS finance.invoices (
 );
 
 CREATE TABLE IF NOT EXISTS finance.payments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     invoice_id UUID NOT NULL REFERENCES finance.invoices(id),
     receipt_number VARCHAR(80) NOT NULL UNIQUE,
     amount_usd NUMERIC(18, 2) NOT NULL,
@@ -126,7 +132,7 @@ CREATE TABLE IF NOT EXISTS finance.payments (
 );
 
 CREATE TABLE IF NOT EXISTS reversals.reversal_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     project_id UUID NOT NULL,
     reversal_type VARCHAR(80) NOT NULL,
     estimated_tco2e NUMERIC(18, 4) NOT NULL,
@@ -137,7 +143,7 @@ CREATE TABLE IF NOT EXISTS reversals.reversal_events (
 );
 
 CREATE TABLE IF NOT EXISTS registry.enterprise_domain_controls (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     domain VARCHAR(80) NOT NULL,
     control VARCHAR(120) NOT NULL,
     status VARCHAR(60) NOT NULL,

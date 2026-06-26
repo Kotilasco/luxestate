@@ -6,6 +6,7 @@ import Fastify from "fastify";
 import { config } from "./config.js";
 import { registerCorrelation } from "./middleware/correlation.js";
 import { carbonRegistryRoutes } from "./routes/carbonRegistry.js";
+import { domainServiceRoutes } from "./routes/domainServices.js";
 import { healthRoutes } from "./routes/health.js";
 
 export async function buildServer() {
@@ -24,6 +25,7 @@ export async function buildServer() {
   await app.register(registerCorrelation);
   await app.register(healthRoutes);
   await app.register(carbonRegistryRoutes);
+  await app.register(domainServiceRoutes);
 
   return app;
 }
